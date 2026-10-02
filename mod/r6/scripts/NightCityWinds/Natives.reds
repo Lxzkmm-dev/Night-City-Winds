@@ -31,25 +31,25 @@ public static native func NCW_IgnoreNear(id: Int32, position: Vector4, radius: F
 public static native func NCW_IsPropHookActive() -> Bool
 // a line in the plugin's log (red4ext\logs\nightcitywinds-*.log)
 public static native func NCW_Log(message: String) -> Void
-// logs a particle system's emitters (wind influence, local space, cooked simulation signature,
-// module classes), read natively; main thread only
-public static native func NCW_DumpParticles(system: ref<CParticleSystem>, label: String) -> Void
 public static native func NCW_GetPropWindStats() -> Vector4
 
-// the smoke layer: the plugin's own wind step inside the engine's particle simulation, on every
-// world-space emitter with a wind influence (no patched files needed for it to move)
-//   NCW_SetSmokeWind(enabled, gain)   gain 1 = the wind x the emitter's influence
-//   NCW_GetSmokeWindStats()           (emitter setups seen, emitters given wind,
-//                                     particle steps in thousands, last dt)
+// the smoke layer: the plugin's own modifier inside the engine's particle simulation. On tagged
+// smoke it damps sideways motion so the game's own wind sets the drift; the optional push
+// (off by default) sets the horizontal velocity to the wind outright on every world-space
+// emitter with a wind influence.
+//   NCW_SetSmokeWind(enabled, gain)   the push; gain 1 = the wind x the emitter's influence
+//   NCW_GetSmokeWindStats()           (emitter setups seen, emitters given our modifier,
+//                                     push steps in thousands, emitters tagged late)
 public static native func NCW_SetSmokeWind(enabled: Bool, gain: Float) -> Void
 public static native func NCW_GetSmokeWindStats() -> Vector4
 
 // smoke tagging at load (what the smoke archive did, done in memory): the plugin classifies the
-// system's emitters by effect path and emitter name, gives smoke a wind influence floor and
-// removes its Collision module. Call from a Resource/PostLoad callback and nothing else there.
+// system's emitters by effect path and emitter name and remembers them; their runtime emitters
+// then get a wind influence floor, no VelocityOverLife curve, a birth point no higher than
+// 2.5 m, and are kept out of PhysX. Call from a Resource/PostLoad callback and nothing else there.
 //   NCW_TagSmokeSystem(system, path)
 //   NCW_SetSmokeTagFloor(floor)      default 0.2, the game's own top value for body smoke
-//   NCW_GetSmokeTagStats()           (systems tagged, emitters tagged, collision modules removed,
+//   NCW_GetSmokeTagStats()           (systems tagged, emitters tagged, physics pools cleared,
 //                                    emitter setups matched + weak matches / 1000)
 public static native func NCW_TagSmokeSystem(system: ref<CParticleSystem>, path: String) -> Void
 public static native func NCW_SetSmokeTagFloor(floor: Float) -> Void

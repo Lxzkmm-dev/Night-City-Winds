@@ -52,6 +52,7 @@ struct Layout
     bool ok = false;
     RED4ext::CProperty* sysEmitters = nullptr;
     RED4ext::CProperty* emName = nullptr;
+    bool emNameIsString = false;
     RED4ext::CProperty* emWind = nullptr;
     RED4ext::CProperty* emBlob = nullptr;
     RED4ext::CProperty* emModules = nullptr;
@@ -79,6 +80,8 @@ void ResolveLayout()
     auto blob = rtti->GetClass("rendRenderParticleBlob");
     g_layout.sysEmitters = sys ? sys->GetProperty("emitters") : nullptr;
     g_layout.emName = em ? em->GetProperty("editorName") : nullptr;
+    g_layout.emNameIsString = g_layout.emName && g_layout.emName->type &&
+                              !std::strcmp(g_layout.emName->type->GetName().ToString(), "String");
     g_layout.emWind = em ? em->GetProperty("windInfluence") : nullptr;
     g_layout.emBlob = em ? em->GetProperty("renderResourceBlob") : nullptr;
     g_layout.emModules = em ? em->GetProperty("modules") : nullptr;
@@ -114,7 +117,8 @@ void ResolveLayout()
     g_layout.ok = g_layout.infoWind >= 0 && g_layout.infoModMask >= 0 && g_layout.infoNumMod >= 0 &&
                   g_layout.infoMaxParticles >= 0;
     g_sdk->logger->InfoF(g_handle,
-                         "smoke tag: blob offsets info %d wind %d masks %d/%d counts %d/%d max %d simhash %d data %d modif %d -> %s",
+                         "smoke tag: editorName is %s; blob offsets info %d wind %d masks %d/%d counts %d/%d max %d simhash %d data %d modif %d -> %s",
+                         g_layout.emName && g_layout.emName->type ? g_layout.emName->type->GetName().ToString() : "?",
                          static_cast<int>(g_layout.info), static_cast<int>(g_layout.infoWind),
                          static_cast<int>(g_layout.infoModMask), static_cast<int>(g_layout.infoInitMask),
                          static_cast<int>(g_layout.infoNumMod), static_cast<int>(g_layout.infoNumInit),
@@ -146,15 +150,10 @@ T Read(const std::uint8_t* aBase, std::ptrdiff_t aOffset)
 }
 
 // the cooked emitter without its wind influence: masks, counts, max particles, simulation hash
-std::uint64_t WeakFingerprint(const std::uint8_t* aBlob)
+std::uint64_t WeakFromFields(std::uint64_t mm, std::uint64_t im, std::uint32_t nm, std::uint32_t ni, std::uint32_t mp,
+                             std::uint64_t sh)
 {
     std::uint64_t h = 0xCBF29CE484222325ull;
-    const std::uint64_t mm = Read<std::uint64_t>(aBlob, g_layout.infoModMask);
-    const std::uint64_t im = Read<std::uint64_t>(aBlob, g_layout.infoInitMask);
-    const std::uint32_t nm = Read<std::uint32_t>(aBlob, g_layout.infoNumMod);
-    const std::uint32_t ni = Read<std::uint32_t>(aBlob, g_layout.infoNumInit);
-    const std::uint32_t mp = Read<std::uint32_t>(aBlob, g_layout.infoMaxParticles);
-    const std::uint64_t sh = Read<std::uint64_t>(aBlob, g_layout.infoSimHash);
     h = Fnv(h, &mm, sizeof(mm));
     h = Fnv(h, &im, sizeof(im));
     h = Fnv(h, &nm, sizeof(nm));
@@ -162,6 +161,13 @@ std::uint64_t WeakFingerprint(const std::uint8_t* aBlob)
     h = Fnv(h, &mp, sizeof(mp));
     h = Fnv(h, &sh, sizeof(sh));
     return h | 1; // never 0
+}
+
+std::uint64_t WeakFingerprint(const std::uint8_t* aBlob)
+{
+    return WeakFromFields(Read<std::uint64_t>(aBlob, g_layout.infoModMask), Read<std::uint64_t>(aBlob, g_layout.infoInitMask),
+                          Read<std::uint32_t>(aBlob, g_layout.infoNumMod), Read<std::uint32_t>(aBlob, g_layout.infoNumInit),
+                          Read<std::uint32_t>(aBlob, g_layout.infoMaxParticles), Read<std::uint64_t>(aBlob, g_layout.infoSimHash));
 }
 
 // the weak one plus the cooked updater records (the initializer and modifier parameters)
@@ -250,18 +256,16 @@ void TagSystem(RED4ext::ISerializable* aSystem, const char* aPath)
     {
         return;
     }
-    const std::string path = Lower(aPath);
-    if (path.find(".particle") == std::string::npos || !ContainsAny(path, kPaths, std::size(kPaths)))
-    {
-        return;
-    }
+    std::string path = Lower(aPath);
+    std::replace(path.begin(), path.end(), '/', '\\');
+    const bool wanted = path.find(".particle") != std::string::npos && ContainsAny(path, kPaths, std::size(kPaths));
     auto emitters = Field<RED4ext::DynArray<RED4ext::Handle<RED4ext::ISerializable>>>(aSystem, g_layout.sysEmitters);
-    if (!emitters)
+    if (!wanted || !emitters)
     {
         return;
     }
     const float floor = g_floor.load(std::memory_order_relaxed);
-    std::uint32_t tagged = 0, stripped = 0;
+    std::uint32_t tagged = 0, collisions = 0;
     for (std::uint32_t i = 0; i < emitters->Size(); ++i)
     {
         auto* emitter = (*emitters)[i].instance;
@@ -269,8 +273,18 @@ void TagSystem(RED4ext::ISerializable* aSystem, const char* aPath)
         {
             continue;
         }
-        auto* name = Field<RED4ext::CName>(emitter, g_layout.emName);
-        const std::string editorName = Lower(name ? name->ToString() : "");
+        // editorName is a String on CParticleEmitter (a CName elsewhere): read it by its type
+        std::string editorName;
+        if (g_layout.emNameIsString)
+        {
+            auto* s = Field<RED4ext::CString>(emitter, g_layout.emName);
+            editorName = Lower(s ? s->c_str() : "");
+        }
+        else
+        {
+            auto* n = Field<RED4ext::CName>(emitter, g_layout.emName);
+            editorName = Lower(n ? n->ToString() : "");
+        }
         if (!ContainsAny(editorName, kSmoke, std::size(kSmoke)) || ContainsAny(editorName, kSkip, std::size(kSkip)))
         {
             continue;
@@ -296,19 +310,19 @@ void TagSystem(RED4ext::ISerializable* aSystem, const char* aPath)
         {
             *blobWind = floor;
         }
-        // no PhysX for smoke: drop the Collision module before the effect is instantiated
+        // Emitters with a Collision module are counted, not changed: the game decides on PhysX
+        // for the emitter before this callback and reads the module's settings after it.
+        // Removing the module dropped the column like a crate (gravity), disabling it killed
+        // the puffs at once (2026-10-02). The plugin keeps smoke out of PhysX at the particle
+        // passes instead (SmokeWind.cpp).
         auto modules = Field<RED4ext::DynArray<RED4ext::Handle<RED4ext::ISerializable>>>(emitter, g_layout.emModules);
-        if (modules)
+        for (std::uint32_t m = 0; modules && m < modules->Size(); ++m)
         {
-            for (std::uint32_t m = modules->Size(); m > 0; --m)
+            auto* module = (*modules)[m].instance;
+            auto cls = module ? module->GetType() : nullptr;
+            if (cls && !std::strcmp(cls->GetName().ToString(), "CParticleModificatorCollision"))
             {
-                auto* module = (*modules)[m - 1].instance;
-                auto cls = module ? module->GetType() : nullptr;
-                if (cls && !std::strcmp(cls->GetName().ToString(), "CParticleModificatorCollision"))
-                {
-                    modules->RemoveAt(m - 1);
-                    ++stripped;
-                }
+                ++collisions;
             }
         }
     }
@@ -316,11 +330,11 @@ void TagSystem(RED4ext::ISerializable* aSystem, const char* aPath)
     {
         g_stats.systemsTagged.fetch_add(1, std::memory_order_relaxed);
         g_stats.emittersTagged.fetch_add(tagged, std::memory_order_relaxed);
-        g_stats.collisionsStripped.fetch_add(stripped, std::memory_order_relaxed);
-        if (g_logged.fetch_add(1, std::memory_order_relaxed) < 80)
+        g_stats.collisions.fetch_add(collisions, std::memory_order_relaxed);
+        if (g_logged.fetch_add(1, std::memory_order_relaxed) < 100)
         {
-            g_sdk->logger->InfoF(g_handle, "smoke tag: %s: %u smoke emitters, %u collision modules removed", aPath, tagged,
-                                 stripped);
+            g_sdk->logger->InfoF(g_handle, "smoke tag: %s: %u smoke emitters, %u with a collision module", aPath, tagged,
+                                 collisions);
         }
     }
 }
@@ -348,6 +362,21 @@ float FloorFor(const std::uint8_t* aBlob)
 Stats& GetStats()
 {
     return g_stats;
+}
+
+float FloorForFields(std::uint64_t aModMask, std::uint64_t aInitMask, std::uint32_t aNumMod, std::uint32_t aNumInit,
+                     std::uint32_t aMaxParticles, std::uint64_t aSimHash)
+{
+    if (!g_layout.ok)
+    {
+        return 0.0f;
+    }
+    const float f = Load(WeakFromFields(aModMask, aInitMask, aNumMod, aNumInit, aMaxParticles, aSimHash));
+    if (f > 0.0f)
+    {
+        g_stats.setupHitsWeak.fetch_add(1, std::memory_order_relaxed);
+    }
+    return f;
 }
 
 std::atomic<float>& Floor()

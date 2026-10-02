@@ -17,6 +17,15 @@ constexpr std::uint32_t Particle_EmitterSetup = 2428183128;
 // the allocator and free the modifier-list builder (0x41826C) uses (0xB04CA8, 0x14C19C)
 constexpr std::uint32_t Particle_ListAlloc = 2087392471;
 constexpr std::uint32_t Particle_ListFree = 2786008195;
+// the per-frame CPU particle passes (0x1395B4, 0x13A394) and the spawn pass (0x13326C): r9 points
+// at the runtime emitter pointer, the 5th argument is the owner whose +0x38 is the PhysX particle
+// pool; a null pool makes the pass simulate the particles on the CPU
+constexpr std::uint32_t Particle_SimA = 485192079;
+constexpr std::uint32_t Particle_SimB = 524907113;
+constexpr std::uint32_t Particle_Spawn = 513826673;
+// CParticleModificatorVelocityOverLife's modifier function (0x13A28C): multiplies the working
+// velocity by its curve each frame; replaced by a record-skipping stub on tagged smoke
+constexpr std::uint32_t Particle_VelocityOverLife = 3859429499;
 } // namespace NCW::Hashes
 
 namespace NCW

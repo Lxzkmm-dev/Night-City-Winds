@@ -255,12 +255,12 @@ function WindProbe.DragStats()
   end
   local ok7, sm = pcall(function() return Game.NCW_GetSmokeWindStats() end)
   if ok7 and sm then
-    line = line .. string.format("\nsmoke (engine): %d emitters set up | %d given wind | %.0fk particle steps | dt %.4f",
+    line = line .. string.format("\nsmoke (engine): %d emitters set up | %d with our modifier | %.0fk push steps | %d tagged late",
       sm.x, sm.y, sm.z, sm.w)
   end
   local ok8, tg = pcall(function() return Game.NCW_GetSmokeTagStats() end)
   if ok8 and tg then
-    line = line .. string.format("\nsmoke tags (load): %d effects | %d emitters | %d collision modules removed | %d setups matched (%03d weak)",
+    line = line .. string.format("\nsmoke tags (load): %d effects | %d emitters | %d physics pools cleared | %d setups matched (%03d weak)",
       tg.x, tg.y, tg.z, math.floor(tg.w), math.floor((tg.w - math.floor(tg.w)) * 1000 + 0.5))
   end
   local sys = windSystem()
@@ -355,12 +355,6 @@ registerForEvent("onDraw", function()
       local sys = windSystem()
       if sys then sys:ForceState(CName.new("")) end
       out("== wind state: back to the weather's odds")
-    end
-    if ImGui.Button("Dump smoke signatures (to the plugin log)") then
-      local ok, err = pcall(function()
-        Game.GetScriptableServiceContainer():GetService("NightCityWinds.NCWParticles"):DumpSignatures()
-      end)
-      out(ok and "== smoke signatures requested; they land in the plugin log in a second" or ("dump failed: " .. tostring(err)))
     end
     ImGui.Text("Visuals (foliage, cloth, smoke, fire)")
     WindProbe.visualOn = ImGui.Checkbox("write wind into the weather curves", WindProbe.visualOn ~= false)

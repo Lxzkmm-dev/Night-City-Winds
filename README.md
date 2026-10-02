@@ -1,4 +1,4 @@
-# Night City Winds — 0.5.1
+# Night City Winds — 0.6.0
 
 A dynamic, physics-based wind for Cyberpunk 2077 (2.31), built from a reverse-engineering of the
 game's physics and particle engines. One wind field drives everything: cars, loose props, V on
@@ -18,11 +18,13 @@ and the native plugin.
 - **Visuals** (redscript): the live wind is written into every weather state's `WindAreaSettings`
   curves, which the engine uses for foliage, cloth, particles and water, so the visuals match the
   physics.
-- **Smoke**: the engine's own particle wind moves smoke once an emitter has a wind influence, a
-  drag record it can read, no fixed motion curve and no collision module. `smoke\build_smoke.py`
-  patches the game's smoke effects (and those of installed smoke mods) accordingly into an archive
-  built for your own install. The plugin also hooks the emitter setup and can add its own wind
-  step to CPU-simulated smoke (off by default; the game's wind looks better).
+- **Smoke** (plugin + redscript, no patched files): every particle system the game loads is
+  classified by effect path and emitter name; emitters that are smoke, steam or dust get, when the
+  renderer sets them up, a wind influence floor (the engine's own particle wind multiplies by it),
+  their fixed velocity curve stubbed, a birth point no higher than 2.5 m, sideways drag, and are
+  kept out of PhysX. Works on vanilla smoke and on other mods' smoke (Exploded Vehicles' plumes
+  included) with no load-order dependence. The plugin can also push smoke itself (off by default;
+  the game's wind looks better).
 - **Wind Probe** (CET + redscript, dev only): a window to pin the wind, force a state, toggle each
   layer, tune gains and read live stats and diagnostics.
 
@@ -32,7 +34,7 @@ and the native plugin.
 | --- | --- |
 | `plugin/` | RED4ext plugin (C++20): `src/`, `CMakeLists.txt`, `build.ps1` (builds and installs the DLL) |
 | `mod/` | The mod's scripts: `r6/scripts/NightCityWinds` (wind field, natives, diagnostics), `r6/scripts/WindProbe` and `bin/.../WindProbe` (the probe) |
-| `smoke/` | `build_smoke.py` (the smoke patch pipeline), `modlist_first.py` (load-order helper), the analysis scripts used to decode the cooked particle data |
+| `smoke/` | Legacy (0.5.x): `build_smoke.py` (the retired smoke archive pipeline), `modlist_first.py` (load-order helper), the analysis scripts used to decode the cooked particle data |
 | `tools/re/` | Read-only reverse-engineering tools for `Cyberpunk2077.exe` and the archives (address-library symbols, xrefs, disassembly, RDAR reader) |
 | `docs/` | `PHYSICS_RE_FINDINGS.md` (the engine findings, hookable functions by hash), `SMOKE_WIND_ANALYSIS.md` (the smoke investigation), `PRIOR_ART.md` |
 | `install.ps1` | Copies `mod/` into the Mod Organizer mod folder |
@@ -49,12 +51,10 @@ Requirements: Visual Studio 2026 (MSVC, CMake, Ninja), Python 3.11, and in `deps
 
 - Plugin: `powershell -ExecutionPolicy Bypass -File plugin\build.ps1` (add `-NoInstall` to only build).
 - Scripts: `powershell -ExecutionPolicy Bypass -File install.ps1`.
-- Smoke archive: `python smoke\build_smoke.py` (defaults: wind influence floor 0.2, drag 0.15).
-  It extracts the smoke effects from the game and from every enabled mod, patches them and installs
-  `!!!!!NightCityWinds_SmokeWind.archive`. The result contains modified copies of other
-  mods' files and is for your own install only; ship a vanilla-only build (`--vanilla-only`) or
-  nothing. If your modpack ships an `archive\pc\mod\modlist.txt`, our archive must be its first
-  line (`python smoke\modlist_first.py`, `--undo` to restore).
+- Smoke archive (retired in 0.6.0, kept for reference): `python smoke\build_smoke.py` built a
+  per-install archive of patched smoke effects. It is no longer needed; remove any
+  `!!!!!NightCityWinds_SmokeWind.archive` and any line for it in a modpack's
+  `archive\pc\mod\modlist.txt` (`python smoke\modlist_first.py --undo`).
 
 Requires RED4ext, redscript, Codeware and (for the probe) Cyber Engine Tweaks.
 
@@ -71,10 +71,10 @@ wind.ForceState(n"storm");
 A mod that moves its own physics bodies calls `NCW_IgnoreNear(id, position, radius)` every frame
 so the prop layer leaves them alone. All natives are listed in `mod/r6/scripts/NightCityWinds/Natives.reds`.
 
-## Status of 0.5.1
+## Status of 0.6.0
 
 Working in game: car drag wind, prop wind, wind states, visual sync (trees, cloth, smoke), Nova
 City 2 weather, player wind (opt-in), smoke following the wind including Exploded Vehicles'
-plumes (through the per-install archive). Known limits: the smoke archive is per-install; the
-native route for smoke (setting wind influence and skipping collision at load, no files) is the
-next step; see `docs/SMOKE_WIND_ANALYSIS.md`.
+plumes, all from the plugin and scripts. Known limits: smoke emitters that are neither in a smoke
+effect folder nor named like smoke are left alone; column smoke no longer dies on overpasses
+(no collision on the CPU path). How it was found: `docs/SMOKE_WIND_ANALYSIS.md` section 5g.

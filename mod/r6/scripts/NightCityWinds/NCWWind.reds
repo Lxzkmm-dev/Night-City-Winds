@@ -343,11 +343,6 @@ public class NCWWind extends ScriptableSystem {
       if now >= this.m_visualAt {
         this.m_visualAt = now + 0.1;
         this.SyncVisuals();
-        // particle diagnostics, when asked for, run here on the main thread
-        let particles = NCWParticles.Get();
-        if IsDefined(particles) {
-          particles.PollDump();
-        }
       }
     }
     this.Next();

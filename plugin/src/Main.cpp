@@ -1,5 +1,5 @@
 // =============================================================================
-// Night City Winds - RED4ext plugin (0.5.1, 2026-10-02; Cyberpunk Wind Framework until 0.5.0)
+// Night City Winds - RED4ext plugin (0.6.0, 2026-10-02; Cyberpunk Wind Framework until 0.5.0)
 //
 // 0.1.0: the vehicle layer. Detours the game's own car air-drag function so it acts on the
 // airspeed (velocity - wind), and gives redscript a handful of natives to drive and inspect it:
@@ -18,10 +18,15 @@
 //   NCW_Log(message: String)            a line in red4ext\logs\nightcitywinds-*.log
 //   NCW_GetPropWindStats() -> Vector4   (PhysX steps seen, dynamic actors, pushed last step,
 //                                        largest force last step in N)
-// 0.3.0: the smoke layer. Our own wind step appended to the engine's CPU particle modifiers:
-//   NCW_SetSmokeWind(enabled: Bool, gain: Float)
-//   NCW_GetSmokeWindStats() -> Vector4  (emitter setups seen, emitters given wind,
-//                                        particle steps in thousands, last dt)
+// 0.3.0: the smoke layer. Our own modifier appended to the engine's CPU particle modifiers:
+//   NCW_SetSmokeWind(enabled: Bool, gain: Float)   the optional push (off: the game's own wind)
+//   NCW_GetSmokeWindStats() -> Vector4  (emitter setups seen, emitters given our modifier,
+//                                        push steps in thousands, emitters tagged late)
+// 0.6.0: smoke tagged at load, in memory; the smoke archive is retired:
+//   NCW_TagSmokeSystem(system, path)    from a Resource/PostLoad callback on CParticleSystem
+//   NCW_SetSmokeTagFloor(floor: Float)  wind influence floor for tagged smoke (default 0.2)
+//   NCW_GetSmokeTagStats() -> Vector4   (systems tagged, emitters tagged, physics pools
+//                                        cleared, setups matched + weak matches / 1000)
 // =============================================================================
 
 #include <RED4ext/RED4ext.hpp>
@@ -30,7 +35,6 @@
 #include <Windows.h>
 
 #include "Addresses.hpp"
-#include "ParticleDump.hpp"
 #include "PhysXWind.hpp"
 #include "SmokeTag.hpp"
 #include "SmokeWind.hpp"
@@ -113,26 +117,6 @@ void NCW_Log(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t
     }
 }
 
-void NCW_DumpParticles(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t)
-{
-    RED4ext::Handle<RED4ext::ISerializable> system;
-    RED4ext::CString label;
-    RED4ext::GetParameter(aFrame, &system);
-    RED4ext::GetParameter(aFrame, &label);
-    aFrame->code++;
-    if (!g_sdk)
-    {
-        return;
-    }
-    if (!system.instance)
-    {
-        g_sdk->logger->InfoF(g_handle, "signatures: %s did not load", label.c_str());
-        return;
-    }
-    NCW::ParticleDump::Dump(system.instance, label.c_str(),
-                            [](const std::string& aLine) { g_sdk->logger->Info(g_handle, aLine.c_str()); });
-}
-
 void NCW_IsPropHookActive(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, bool* aOut, int64_t)
 {
     aFrame->code++;
@@ -176,7 +160,8 @@ void NCW_GetSmokeWindStats(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, 
     {
         auto& s = NCW::SmokeWind::GetStats();
         *aOut = RED4ext::Vector4{static_cast<float>(s.emittersSeen.load()), static_cast<float>(s.emittersWindy.load()),
-                                 static_cast<float>(s.particleSteps.load()) / 1000.0f, s.lastDt.load()};
+                                 static_cast<float>(s.particleSteps.load()) / 1000.0f,
+                                 static_cast<float>(s.lateMatches.load())};
     }
 }
 
@@ -210,7 +195,7 @@ void NCW_GetSmokeTagStats(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, R
     {
         auto& s = NCW::SmokeTag::GetStats();
         *aOut = RED4ext::Vector4{static_cast<float>(s.systemsTagged.load()), static_cast<float>(s.emittersTagged.load()),
-                                 static_cast<float>(s.collisionsStripped.load()),
+                                 static_cast<float>(NCW::SmokeWind::GetStats().poolsCleared.load()),
                                  static_cast<float>(s.setupHits.load()) + static_cast<float>(s.setupHitsWeak.load()) / 1000.0f};
     }
 }
@@ -298,11 +283,6 @@ void PostRegisterTypes()
     ignore->AddParam("Vector4", "position");
     ignore->AddParam("Float", "radius");
     rtti->RegisterFunction(ignore);
-
-    auto dump = Register("NCW_DumpParticles", &NCW_DumpParticles, nullptr);
-    dump->AddParam("handle:CParticleSystem", "system");
-    dump->AddParam("String", "label");
-    rtti->RegisterFunction(dump);
 
     auto log = Register("NCW_Log", &NCW_Log, nullptr);
     log->AddParam("String", "message");
