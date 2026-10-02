@@ -27,4 +27,5 @@ tools/re/riprefs.bin
 # per-install backups and run logs
 backups/
 logs/
+tools/*.log
 __pycache__/
