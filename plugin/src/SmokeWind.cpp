@@ -13,8 +13,8 @@ namespace
 RED4ext::v1::PluginHandle g_handle = nullptr;
 const RED4ext::v1::Sdk* g_sdk = nullptr;
 
-CWF::SmokeWind::Settings g_settings;
-CWF::SmokeWind::Stats g_stats;
+NCW::SmokeWind::Settings g_settings;
+NCW::SmokeWind::Stats g_stats;
 
 // ---- engine pieces (2.31 disassembly; resolved by hash) ------------------------------------
 // void* EmitterSetup(?, const Blob* desc, ?, ?): builds a runtime emitter from the cooked
@@ -116,7 +116,7 @@ float Recall(const void* aEmitter)
 // and never runs its list, which is why the smoke archive strips that module from smoke.
 void SmokeModifier(std::uint8_t* aParticle, std::uint8_t* aEmitter10, std::uint8_t* aContext, float aLife)
 {
-    if (!g_settings.enabled.load(std::memory_order_relaxed) || !CWF::Wind::IsEnabled() || !aParticle ||
+    if (!g_settings.enabled.load(std::memory_order_relaxed) || !NCW::Wind::IsEnabled() || !aParticle ||
         !aContext)
     {
         return;
@@ -130,7 +130,7 @@ void SmokeModifier(std::uint8_t* aParticle, std::uint8_t* aEmitter10, std::uint8
     // a fresh particle is still in its source's jet; the wind takes it over in its first 10%
     const float ramp = std::clamp(aLife / 0.1f, 0.0f, 1.0f);
     const float scale = influence * g_settings.gain.load(std::memory_order_relaxed);
-    const auto w = CWF::Wind::Get();
+    const auto w = NCW::Wind::Get();
     // Set the horizontal velocity outright once the particle has left its jet: wind x
     // influence x gain, blended in over the jet phase. The engine's drag damps the velocity
     // toward zero each frame, so easing toward the wind lost to it. Vertical motion stays the
@@ -217,7 +217,7 @@ void* Setup_Detour(void* a1, void* aDesc, void* a3, void* a4)
 }
 } // namespace
 
-namespace CWF::SmokeWind
+namespace NCW::SmokeWind
 {
 bool Attach(RED4ext::v1::PluginHandle aHandle, const RED4ext::v1::Sdk* aSdk)
 {
@@ -274,4 +274,4 @@ void LogSettingChange(bool aEnabled, float aGain)
         g_sdk->logger->InfoF(g_handle, "smoke wind setting: enabled %d gain %.2f", aEnabled ? 1 : 0, aGain);
     }
 }
-} // namespace CWF::SmokeWind
+} // namespace NCW::SmokeWind

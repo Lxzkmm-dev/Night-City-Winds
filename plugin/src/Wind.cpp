@@ -11,7 +11,7 @@ std::atomic<float> g_oy{0.0f};
 std::atomic<float> g_oz{0.0f};
 } // namespace
 
-namespace CWF
+namespace NCW
 {
 std::atomic<std::uint32_t> Wind::dragCalls{0};
 std::atomic<float> Wind::lastGroundSpeed{0.0f};
@@ -53,4 +53,4 @@ bool Wind::IsEnabled()
 {
     return g_enabled.load(std::memory_order_relaxed);
 }
-} // namespace CWF
+} // namespace NCW

@@ -1,12 +1,14 @@
 """Put the smoke archive on the first line of every enabled modlist.txt (CyberVision ships one;
 see build_smoke.archive_load_order), backing each file up first. --undo restores the backups.
-The modpack's own updates overwrite modlist.txt, so re-run this after updating it."""
+Lines naming an earlier name of our archive are dropped. The modpack's own updates overwrite
+modlist.txt, so re-run this after updating it."""
 import os, shutil, sys
 from build_smoke import ARCHIVE_NAME, MO2, enabled_mods
 
 PROFILE = "04 - CyberVision - PATH TRACING Very High - RTX 5070 TI"
 BACKUP = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "backups", "modlist")
 LINE = ARCHIVE_NAME + ".archive"
+OURS = {LINE.lower(), "!!!!!cyberpunkwindframework_smokewind.archive", "zzzzz_cyberpunkwindframework_smokewind.archive"}
 
 for m in enabled_mods(PROFILE):
     p = os.path.join(MO2, "mods", m, "archive", "pc", "mod", "modlist.txt")
@@ -21,12 +23,12 @@ for m in enabled_mods(PROFILE):
     raw = open(p, "rb").read()
     nl = b"\r\n" if b"\r\n" in raw else b"\n"
     lines = raw.split(nl)
-    if lines and lines[0].strip().lower() == LINE.lower().encode():
+    rest = [l for l in lines if l.strip().lower().decode("utf-8", "replace") not in OURS]
+    if lines and lines[0].strip().lower() == LINE.lower().encode() and len(rest) == len(lines) - 1:
         print("already first:", p)
         continue
     os.makedirs(BACKUP, exist_ok=True)
     if not os.path.isfile(bak):
         shutil.copyfile(p, bak)
-    lines = [l for l in lines if l.strip().lower() != LINE.lower().encode()]
-    open(p, "wb").write(nl.join([LINE.encode()] + lines))
+    open(p, "wb").write(nl.join([LINE.encode()] + rest))
     print("listed first in", p, "(backup:", os.path.normpath(bak) + ")")

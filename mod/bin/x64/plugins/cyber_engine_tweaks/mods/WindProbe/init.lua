@@ -1,5 +1,5 @@
 -- =============================================================================
--- CYBERPUNK WIND FRAMEWORK - RE PROBE (dev only, read-mostly)
+-- NIGHT CITY WINDS - RE PROBE (dev only, read-mostly)
 --
 -- Answers the open items in F:\2077 Wind Dev\docs\PHYSICS_RE_FINDINGS.md section 12.
 -- Run from the "Wind Probe" window in the CET overlay (buttons), the hotkeys under
@@ -201,7 +201,7 @@ end
 
 local function windSystem()
   local ok, sys = pcall(function()
-    return Game.GetScriptableSystemsContainer():Get("CyberpunkWindFramework.CWFWind")
+    return Game.GetScriptableSystemsContainer():Get("NightCityWinds.NCWWind")
   end)
   return ok and sys or nil
 end
@@ -235,25 +235,25 @@ function WindProbe.VehicleWind(mode)
   if sys then
     sys:SetOverride(w)
   else
-    cwf("CWF_SetWind", w)
+    cwf("NCW_SetWind", w)
   end
-  out(string.format("== wind pinned (%s): %s m/s, hook active=%s", mode, v(w), tostring(cwf("CWF_IsVehicleHookActive"))))
+  out(string.format("== wind pinned (%s): %s m/s, hook active=%s", mode, v(w), tostring(cwf("NCW_IsVehicleHookActive"))))
 end
 
 function WindProbe.DragStats()
-  local ok, s = pcall(function() return Game.CWF_GetVehicleDragStats() end)
+  local ok, s = pcall(function() return Game.NCW_GetVehicleDragStats() end)
   local line = "plugin not loaded"
   if ok and s then
     line = string.format("drag calls %d | ground %.1f m/s (%.0f km/h) | airspeed %.1f m/s | airResistanceFactor %.3f",
       s.x, s.y, s.y * 3.6, s.z, s.w)
   end
-  local ok3, ps = pcall(function() return Game.CWF_GetPropWindStats() end)
-  local ok4, hooked = pcall(function() return Game.CWF_IsPropHookActive() end)
+  local ok3, ps = pcall(function() return Game.NCW_GetPropWindStats() end)
+  local ok4, hooked = pcall(function() return Game.NCW_IsPropHookActive() end)
   if ok3 and ps then
     line = line .. string.format("\nprops: hooked %s | PhysX steps %d | dynamic actors %d | pushed %d | max force %.0f N",
       tostring(ok4 and hooked), ps.x, ps.y, ps.z, ps.w)
   end
-  local ok7, sm = pcall(function() return Game.CWF_GetSmokeWindStats() end)
+  local ok7, sm = pcall(function() return Game.NCW_GetSmokeWindStats() end)
   if ok7 and sm then
     line = line .. string.format("\nsmoke (engine): %d emitters set up | %d given wind | %.0fk particle steps | dt %.4f",
       sm.x, sm.y, sm.z, sm.w)
@@ -275,7 +275,7 @@ function WindProbe.DragStats()
     end)
     line = line .. "\n" .. (ok5 and pl or ("player: " .. tostring(pl)))
   else
-    line = line .. "\nfield: CWFWind system not found"
+    line = line .. "\nfield: NCWWind system not found"
   end
   return line
 end
@@ -353,7 +353,7 @@ registerForEvent("onDraw", function()
     end
     if ImGui.Button("Dump smoke signatures (to the plugin log)") then
       local ok, err = pcall(function()
-        Game.GetScriptableServiceContainer():GetService("CyberpunkWindFramework.CWFParticles"):DumpSignatures()
+        Game.GetScriptableServiceContainer():GetService("NightCityWinds.NCWParticles"):DumpSignatures()
       end)
       out(ok and "== smoke signatures requested; they land in the plugin log in a second" or ("dump failed: " .. tostring(err)))
     end
@@ -364,7 +364,7 @@ registerForEvent("onDraw", function()
     WindProbe.smokeOn = ImGui.Checkbox("smoke wind in the engine (plugin push, off = game's own wind)", WindProbe.smokeOn == true)
     WindProbe.smokeGain = ImGui.SliderFloat("smoke wind gain", WindProbe.smokeGain or 1.0, 0.0, 5.0, "%.2f")
     if WindProbe.smokeOnSent ~= WindProbe.smokeOn or WindProbe.smokeGainSent ~= WindProbe.smokeGain then
-      local ok = pcall(function() Game.CWF_SetSmokeWind(WindProbe.smokeOn, WindProbe.smokeGain) end)
+      local ok = pcall(function() Game.NCW_SetSmokeWind(WindProbe.smokeOn, WindProbe.smokeGain) end)
       if ok then
         WindProbe.smokeOnSent = WindProbe.smokeOn
         WindProbe.smokeGainSent = WindProbe.smokeGain

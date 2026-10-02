@@ -18,7 +18,7 @@
 
 #include <RED4ext/RED4ext.hpp>
 
-namespace CWF::SmokeWind
+namespace NCW::SmokeWind
 {
 struct Settings
 {
@@ -44,4 +44,4 @@ bool IsAttached();
 Settings& GetSettings();
 Stats& GetStats();
 void LogSettingChange(bool aEnabled, float aGain);
-} // namespace CWF::SmokeWind
+} // namespace NCW::SmokeWind

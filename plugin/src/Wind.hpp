@@ -1,14 +1,14 @@
 #pragma once
 
 // The wind the physics hooks read. For now one world-space vector set from redscript
-// (CWF_SetWind); the field model (gusts, height, shelter, weather) lives in redscript and
+// (NCW_SetWind); the field model (gusts, height, shelter, weather) lives in redscript and
 // pushes its result here each frame. Read from the physics jobs, written from scripts, so
 // every value is atomic.
 
 #include <atomic>
 #include <cstdint>
 
-namespace CWF
+namespace NCW
 {
 struct Vec3
 {
@@ -32,4 +32,4 @@ public:
     static std::atomic<float> lastAirSpeed;
     static std::atomic<float> lastResistanceFactor;
 };
-} // namespace CWF
+} // namespace NCW

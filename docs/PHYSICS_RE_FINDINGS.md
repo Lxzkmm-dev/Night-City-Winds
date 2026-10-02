@@ -174,7 +174,7 @@ Native thunks (2.31 RVAs; **the hashes are the version-robust names**). "Engine 
 - **The resolve works:** the raw proxy-table lookup (generation check, vtable 4234546548, actors at +0x50 and count at +0x5C, `is<PxRigidDynamic>`) succeeded on every step.
 - **Gravity off holds:** `setActorFlag(eDISABLE_GRAVITY)` was never restored by the engine.
 - **Forces work:** `addForce(eFORCE)` inside the simulate/collide detour held height with 0.000 m error.
-- **Scenes:** `PxGetPhysics` reports **7 scenes** sharing one NpScene vtable. CWF's and MNC's vtable patches chain cleanly, whichever patches first.
+- **Scenes:** `PxGetPhysics` reports **7 scenes** sharing one NpScene vtable. Night City Winds' and MNC's vtable patches chain cleanly, whichever patches first.
 
 1. **ProxyManager:** hash 37956006 is a pointer variable (RVA `03467A50`); dereference it to get `mgr`.
 2. **Proxy from proxyId:** hash **4224462602** `ProxyRef* GetProxy(mgr, ProxyRef* out{proxy, refBlock}, u32 proxyId)`; release with hash **919150295**.
@@ -455,18 +455,18 @@ The full report, with a source URL for every fact and a staleness checklist, is 
 
 ## 12b. Framework build status (2026-10-01)
 
-- **Plugin** `CyberpunkWindFramework.dll` 0.2.0. Source: `F:\2077 Wind Dev\plugin`; `build.ps1` builds with VS 18 + CMake + Ninja and installs into the MO2 mod.
+- **Plugin** `NightCityWinds.dll` 0.2.0. Source: `F:\2077 Wind Dev\plugin`; `build.ps1` builds with VS 18 + CMake + Ninja and installs into the MO2 mod.
   - `VehicleDrag.cpp`: the `ApplyAirResistance` detour (hash 3489929719), fed `v - wind`. **Verified in game**: a 30 m/s headwind cut the top speed from 358 to 253 km/h, the same 361 km/h airspeed.
-  - `PhysXWind.cpp`: patches NpScene vtable slots 56 (simulate) and 58 (collide) once a scene exists (`PxGetPhysics()` → `getScenes`). Before each step it adds drag `0.5·1.2·Cd·A·|v_rel|·v_rel` to non-kinematic dynamics under 800 kg within 50 m of the wind origin. A sleeping body is woken only above 0.15·m·g. Bodies inside `CWF_IgnoreNear` spheres are skipped. **Verified in game** (Omar, 2026-10-01): the plugin log shows the scene hooked at `PhysX3_x64.dll+0x20CAF0`, the predicted vtable address, and props moved downwind under a pinned 30 m/s wind.
-  - `Main.cpp`: the natives `CWF_SetWind/GetWind/SetEnabled/IsVehicleHookActive/GetVehicleDragStats/SetWindOrigin/SetPropWind/IgnoreNear/IsPropHookActive/GetPropWindStats`. Hashes resolve through `RED4ext_ResolveAddress` with a 0 check, and the runtime is version-independent.
-- **Scripts** (mod `r6\scripts\CyberpunkWindFramework`): `Natives.reds` (bindings) and `CWFWind.reds`, the wind field.
-  - `CWFWind` is a ScriptableSystem: `At(pos, h)`, `Exposure`, `Mean`, `Heading`, `Gust`, `SetOverride`, `SetScale`.
+  - `PhysXWind.cpp`: patches NpScene vtable slots 56 (simulate) and 58 (collide) once a scene exists (`PxGetPhysics()` → `getScenes`). Before each step it adds drag `0.5·1.2·Cd·A·|v_rel|·v_rel` to non-kinematic dynamics under 800 kg within 50 m of the wind origin. A sleeping body is woken only above 0.15·m·g. Bodies inside `NCW_IgnoreNear` spheres are skipped. **Verified in game** (Omar, 2026-10-01): the plugin log shows the scene hooked at `PhysX3_x64.dll+0x20CAF0`, the predicted vtable address, and props moved downwind under a pinned 30 m/s wind.
+  - `Main.cpp`: the natives `NCW_SetWind/GetWind/SetEnabled/IsVehicleHookActive/GetVehicleDragStats/SetWindOrigin/SetPropWind/IgnoreNear/IsPropHookActive/GetPropWindStats`. Hashes resolve through `RED4ext_ResolveAddress` with a 0 check, and the runtime is version-independent.
+- **Scripts** (mod `r6\scripts\NightCityWinds`): `Natives.reds` (bindings) and `NCWWind.reds`, the wind field.
+  - `NCWWind` is a ScriptableSystem: `At(pos, h)`, `Exposure`, `Mean`, `Heading`, `Gust`, `SetOverride`, `SetScale`.
   - Every frame it pushes the wind at the player or their car, with shelter, to the plugin. **Verified in game**: it finds the weather's curves.
-- **Player layer** (in `CWFWind.Tick`, on foot only):
+- **Player layer** (in `NCWWind.Tick`, on foot only):
   - V's velocity comes from frame-to-frame position. V counts as airborne when no Static, Vehicle or Dynamic hit is found within 0.6 m below the feet.
   - While airborne, drag on a person (Cd 1.0, 0.7 m², 80 kg) is applied as `PSMImpulse { id = n"impulse", impulse = Δv }` each frame.
   - Nothing is applied while grounded, where the locomotion state machine owns the velocity. [built; not yet tested in game]
-- **Wind states and visual sync** (CWFWind rewrite, 2026-10-01) [built; not yet tested in game]:
+- **Wind states and visual sync** (NCWWind rewrite, 2026-10-01) [built; not yet tested in game]:
   - **States:** calm about 1 m/s, breeze 4, windy 8, gale 14, storm 21 (±20%), drawn from per-weather odds, each lasting 90 to 300 s. The mean eases over about 25 s.
   - **Curves:** every weather state's environment parameters are loaded at start. The original curves of each state's primary `WindAreaSettings` are copied into script arrays, which drive direction and the daily shape.
   - **Visual sync:** every 0.1 s the live wind is written back into every state's curves. Strength = the state's original average × (current speed with gusts ÷ that weather's design speed) × gain; direction = the current heading. The point count is never changed, and the originals are restored on disable.
@@ -480,12 +480,12 @@ The full report, with a source URL for every fact and a staleness checklist, is 
   - direction `env+0xB30..0xB38` (hash 2840991125);
   - time `env+0x1B0` (advance, hash 1555304324).
 - **So trees need a WindAreaSettings strength of about 20 for full sway.** Vanilla sandstorm uses 20; sunny's 0.06 gives 0.003, which is still trees. That's why the first visual sync, scaled from each weather's own average, moved smoke slightly and trees not at all.
-- **CWFWind's visual strength is now** `max(art, physical) × gain`:
+- **NCWWind's visual strength is now** `max(art, physical) × gain`:
   - physical = `20 × (v / 21 m/s)²`, i.e. breeze 4 m/s ≈ 0.7, windy 8 ≈ 2.9, gale 14 ≈ 8.9, storm 21 = 20;
   - art = the weather's curve average × (v / design)², which keeps a weather authored windier than that.
 - **Verified in game** (Omar's clip, 2026-10-01; Nova City 2 active, 63 states driven): with a pinned 40 m/s wind at gain 1.0, a palm goes from still to fronds whipping and bent hard downwind within the 10 s clip.
 - **Ceiling:** a pinned 40 m/s wind (strength about 72) sheared a tyre fire's flames off their source. The visual strength is now capped at 25. The particle floor now applies only to smoke-like paths (smoke, steam, exhaust, fume, vapor, dust); flames keep their authored influence.
-- **Particles:** prop smoke follows the same blended strength (seen in game). Explosion and vehicle-fire smoke were authored with little or no `windInfluence`; CWFWind raises it to a floor on smoke/fire/steam/explosion effects at `Resource/PostLoad`, in both `CParticleEmitter.windInfluence` and the cooked `rendRenderParticleBlob.header.emitterInfo.windInfluence`.
+- **Particles:** prop smoke follows the same blended strength (seen in game). Explosion and vehicle-fire smoke were authored with little or no `windInfluence`; NCWWind raises it to a floor on smoke/fire/steam/explosion effects at `Resource/PostLoad`, in both `CParticleEmitter.windInfluence` and the cooked `rendRenderParticleBlob.header.emitterInfo.windInfluence`.
 - `wind_intensity` (CName `0x78178CFC0099FB69`, registered by hash 3185054827) is a separate parameter. It's probably the ambient-audio wind RTPC [unverified]; a candidate for driving wind sound later.
 
 ## 12c. Nova City 2 integration (2026-10-01)
@@ -497,8 +497,8 @@ The full report, with a source URL for every fact and a staleness checklist, is 
 - Read with `tools\re\archive.py`, an RDAR reader that decompresses through the game's own `oo2ext_7_win64.dll`.
 
 **Framework support:** no hard dependency.
-- CWFWind loads whatever definition `WeatherSystem.GetEnvironmentDefinition()` returns, plus any active state missing from it. So Nova City's curves are copied and driven automatically when it's installed, and nothing changes when it isn't.
-- `CWFWind.KindOf` names every vanilla and Nova City state explicitly, with keyword fallback for other weather mods:
+- NCWWind loads whatever definition `WeatherSystem.GetEnvironmentDefinition()` returns, plus any active state missing from it. So Nova City's curves are copied and driven automatically when it's installed, and nothing changes when it isn't.
+- `NCWWind.KindOf` names every vanilla and Nova City state explicitly, with keyword fallback for other weather mods:
 
 | Kind | States |
 |---|---|
@@ -523,12 +523,12 @@ Each kind has a design speed (the m/s its art was made for) and its own odds ove
 - **State switchers (compatible as is):**
   - Weather Switcher and Auto Weather Scheduler (CET) call `WeatherSystem.SetWeather/ResetWeather` with a priority.
   - Disable Quest Weather (reds) blanks `questPlayEnv_SetWeather` nodes.
-  - CWFWind follows the current state within 2 s, so these just change which state it reads.
+  - NCWWind follows the current state within 2 s, so these just change which state it reads.
 - **LUT Switcher 3** edits loaded env resources live, which is evidence that runtime writes take effect. It uses Codeware `CallbackSystem` `Resource/PostLoad`/`Resource/Ready` with `ResourceTarget.Type(n"worldEnvironmentDefinition" | n"worldEnvironmentAreaParameters" | n"worldStreamingSector")`.
   - It names the master envs: `base\weather\24h_basic\cp2077_master_env_nge_v002.env` (base), `…\cp2077_master_env_ep1_v006.env` (EP1), `ep1\weather\cp2077_ep1_master_env_ep1_v005.env` (Dogtown), and `…\nova_city_master_env_v002.env` / `…\nova_city_master_env_ncr_v002.env` (Nova City).
-  - Zone overrides: Dogtown trigger areas carry inline env params (`worldTriggerAreaNode.notifiers` → `worldEnvAreaNotifier.params.areaParameters`). These are local art overrides, which CWFWind deliberately leaves alone.
+  - Zone overrides: Dogtown trigger areas carry inline env params (`worldTriggerAreaNode.notifiers` → `worldEnvAreaNotifier.params.areaParameters`). These are local art overrides, which NCWWind deliberately leaves alone.
 - **Wind-reactive particles** (`windInfluence` in their particle resources): Ultra Fog Steam Smoke and Bloom (165 files), Nova City 2 (15), Exploded Vehicles Smoke Overhaul (5), (Less) Perfect Rain (2). They follow whatever wind the weather curves carry.
-- **CWFWind now:**
+- **NCWWind now:**
   - registers `Resource/PostLoad` for every `worldEnvironmentDefinition` and queues its states' envparams, de-duplicated by path hash;
   - also queues the active state if it isn't in any definition (quest weathers);
   - writes curves by state name, so base, EP1 and Nova City files for the same state are all kept in step.

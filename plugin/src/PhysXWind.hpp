@@ -5,7 +5,7 @@
 #include <atomic>
 #include <cstdint>
 
-namespace CWF::PhysXWind
+namespace NCW::PhysXWind
 {
 // Wind on loose PhysX bodies (props, debris, VAXIS's dynamic decorations): aerodynamic drag on
 // every dynamic, non-kinematic actor within a radius of the wind origin (the player), added
@@ -38,4 +38,4 @@ struct Stats
     std::atomic<float> maxForce{0.0f};     // largest force applied, last step (N)
 };
 Stats& GetStats();
-} // namespace CWF::PhysXWind
+} // namespace NCW::PhysXWind

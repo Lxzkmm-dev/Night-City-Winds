@@ -5,7 +5,7 @@
 
 #include <cstdint>
 
-namespace CWF::Hashes
+namespace NCW::Hashes
 {
 // void vehicle::WheeledPhysics::ApplyAirResistance(const Vector3& velocity, float dt)
 //   F = -1.2 * airResistanceFactor(this+0xC90) * |v|^2 * v^ ; physicsData.force += F * dt
@@ -17,12 +17,12 @@ constexpr std::uint32_t Particle_EmitterSetup = 2428183128;
 // the allocator and free the modifier-list builder (0x41826C) uses (0xB04CA8, 0x14C19C)
 constexpr std::uint32_t Particle_ListAlloc = 2087392471;
 constexpr std::uint32_t Particle_ListFree = 2786008195;
-} // namespace CWF::Hashes
+} // namespace NCW::Hashes
 
-namespace CWF
+namespace NCW
 {
 // Resolves a hash through RED4ext without RED4ext's terminate-on-miss behaviour:
 // returns 0 when the hash is unknown (e.g. after a game patch), so a feature can switch
 // itself off instead of crashing the game.
 std::uintptr_t ResolveOrZero(std::uint32_t aHash);
-} // namespace CWF
+} // namespace NCW

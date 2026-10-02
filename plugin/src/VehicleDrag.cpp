@@ -26,24 +26,24 @@ void* g_target = nullptr;
 
 void ApplyAirResistance_Detour(void* aThis, const Vector3* aVelocity, float aDeltaTime)
 {
-    if (!CWF::Wind::IsEnabled() || !aVelocity)
+    if (!NCW::Wind::IsEnabled() || !aVelocity)
     {
         g_original(aThis, aVelocity, aDeltaTime);
         return;
     }
 
-    const auto wind = CWF::Wind::Get();
+    const auto wind = NCW::Wind::Get();
     const Vector3 air{aVelocity->x - wind.x, aVelocity->y - wind.y, aVelocity->z - wind.z};
 
-    CWF::Wind::dragCalls.fetch_add(1, std::memory_order_relaxed);
-    CWF::Wind::lastGroundSpeed.store(
+    NCW::Wind::dragCalls.fetch_add(1, std::memory_order_relaxed);
+    NCW::Wind::lastGroundSpeed.store(
         std::sqrt(aVelocity->x * aVelocity->x + aVelocity->y * aVelocity->y + aVelocity->z * aVelocity->z),
         std::memory_order_relaxed);
-    CWF::Wind::lastAirSpeed.store(std::sqrt(air.x * air.x + air.y * air.y + air.z * air.z),
+    NCW::Wind::lastAirSpeed.store(std::sqrt(air.x * air.x + air.y * air.y + air.z * air.z),
                                   std::memory_order_relaxed);
     if (aThis)
     {
-        CWF::Wind::lastResistanceFactor.store(
+        NCW::Wind::lastResistanceFactor.store(
             *reinterpret_cast<const float*>(static_cast<const char*>(aThis) + kAirResistanceFactorOffset),
             std::memory_order_relaxed);
     }
@@ -52,7 +52,7 @@ void ApplyAirResistance_Detour(void* aThis, const Vector3* aVelocity, float aDel
 }
 } // namespace
 
-namespace CWF::VehicleDrag
+namespace NCW::VehicleDrag
 {
 bool Attach(RED4ext::v1::PluginHandle aHandle, const RED4ext::v1::Sdk* aSdk)
 {
@@ -90,4 +90,4 @@ bool IsAttached()
 {
     return g_target != nullptr;
 }
-} // namespace CWF::VehicleDrag
+} // namespace NCW::VehicleDrag

@@ -40,10 +40,10 @@ Collide_t g_collide = nullptr;
 std::atomic<bool> g_hooked{false};
 PxGetPhysics_t g_getPhysics = nullptr;
 
-CWF::PhysXWind::Settings g_settings;
-CWF::PhysXWind::Stats g_stats;
+NCW::PhysXWind::Settings g_settings;
+NCW::PhysXWind::Stats g_stats;
 
-// exclusion spheres (CWF_IgnoreNear), each alive for kIgnoreMs after its last refresh
+// exclusion spheres (NCW_IgnoreNear), each alive for kIgnoreMs after its last refresh
 constexpr std::size_t kMaxIgnore = 32;
 constexpr ULONGLONG kIgnoreMs = 500;
 struct Ignore
@@ -88,15 +88,15 @@ void PatchSlot(void** aVtable, std::size_t aSlot, void* aValue)
 void ApplyWind(PxScene* aScene)
 {
     g_stats.steps.fetch_add(1, std::memory_order_relaxed);
-    if (!g_settings.enabled.load(std::memory_order_relaxed) || !CWF::Wind::IsEnabled())
+    if (!g_settings.enabled.load(std::memory_order_relaxed) || !NCW::Wind::IsEnabled())
     {
         g_stats.pushed.store(0, std::memory_order_relaxed);
         return;
     }
 
-    const auto w = CWF::Wind::Get();
+    const auto w = NCW::Wind::Get();
     const PxVec3 wind(w.x, w.y, w.z);
-    const auto o = CWF::Wind::GetOrigin();
+    const auto o = NCW::Wind::GetOrigin();
     const PxVec3 origin(o.x, o.y, o.z);
     const float radius = g_settings.radius.load(std::memory_order_relaxed);
     const float radius2 = radius * radius;
@@ -185,7 +185,7 @@ void ApplyWindLocked(PxScene* aScene)
 {
     if (aScene->getFlags() & PxSceneFlag::eREQUIRE_RW_LOCK)
     {
-        PxSceneWriteLock lock(*aScene, "CyberpunkWindFramework");
+        PxSceneWriteLock lock(*aScene, "NightCityWinds");
         ApplyWind(aScene);
     }
     else
@@ -207,7 +207,7 @@ void Collide_Detour(PxScene* aThis, PxReal aDt, PxBaseTask* aTask, void* aMem, P
 }
 } // namespace
 
-namespace CWF::PhysXWind
+namespace NCW::PhysXWind
 {
 void Init(RED4ext::v1::PluginHandle aHandle, const RED4ext::v1::Sdk* aSdk)
 {
@@ -308,4 +308,4 @@ Stats& GetStats()
 {
     return g_stats;
 }
-} // namespace CWF::PhysXWind
+} // namespace NCW::PhysXWind

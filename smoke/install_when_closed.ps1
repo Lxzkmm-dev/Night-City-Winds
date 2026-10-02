@@ -1,7 +1,7 @@
 # Install the built smoke archive as soon as the game exits (the game holds the installed one open).
 # Writes the outcome to install_when_closed.log next to this script.
-$built = Join-Path $PSScriptRoot "work\!!!!!CyberpunkWindFramework_SmokeWind.archive"
-$dest = "F:\Cyberpunk 2077\mods\Cyberpunk Wind Framework\archive\pc\mod\!!!!!CyberpunkWindFramework_SmokeWind.archive"
+$built = Join-Path $PSScriptRoot "work\!!!!!NightCityWinds_SmokeWind.archive"
+$dest = "F:\Cyberpunk 2077\mods\Cyberpunk Wind Framework\archive\pc\mod\!!!!!NightCityWinds_SmokeWind.archive"
 $log = Join-Path $PSScriptRoot "install_when_closed.log"
 "$(Get-Date -Format s) waiting for the game to exit" | Out-File $log -Encoding utf8
 Wait-Process -Name Cyberpunk2077 -ErrorAction SilentlyContinue

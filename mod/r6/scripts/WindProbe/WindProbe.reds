@@ -1,5 +1,5 @@
 // =============================================================================
-// CYBERPUNK WIND FRAMEWORK - RE PROBE HELPERS (dev only)
+// NIGHT CITY WINDS - RE PROBE HELPERS (dev only)
 //
 // CET can't pass struct fields by script_ref (ResourceRef.GetPath, CurveDataFloat.GetSize, ...),
 // so the WindProbe CET mod calls these instead. Nothing here changes game state.

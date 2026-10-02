@@ -20,14 +20,14 @@ if ($LASTEXITCODE -ne 0) { throw "configure failed" }
 if ($LASTEXITCODE -ne 0) { throw "build failed" }
 
 if (-not $NoInstall) {
-    $dst = "F:\Cyberpunk 2077\mods\Cyberpunk Wind Framework\red4ext\plugins\CyberpunkWindFramework"
+    $dst = "F:\Cyberpunk 2077\mods\Cyberpunk Wind Framework\red4ext\plugins\NightCityWinds"
     New-Item -ItemType Directory -Force $dst | Out-Null
-    $dll = Join-Path $dst "CyberpunkWindFramework.dll"
+    $dll = Join-Path $dst "NightCityWinds.dll"
     # a running game holds the DLL: a loaded DLL can still be renamed, so move it aside
     try { Remove-Item "$dll.old" -Force -ErrorAction Stop } catch {}
     if (Test-Path $dll) {
-        try { Remove-Item $dll -Force -ErrorAction Stop } catch { Rename-Item $dll "CyberpunkWindFramework.dll.old" -Force }
+        try { Remove-Item $dll -Force -ErrorAction Stop } catch { Rename-Item $dll "NightCityWinds.dll.old" -Force }
     }
-    Copy-Item (Join-Path $build "CyberpunkWindFramework.dll") $dst -Force
+    Copy-Item (Join-Path $build "NightCityWinds.dll") $dst -Force
     Write-Host "installed to $dst"
 }

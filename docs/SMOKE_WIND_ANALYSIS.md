@@ -108,7 +108,7 @@ Authored wind influence of the effects you were near (the log records the values
 - **Fix:** `smoke\build_smoke.py` patches the files.
   1. It extracts the effects in the smoke-relevant fx folders from the game and from every enabled mod archive (WolvenKit CLI 9.0.1). The winning version is the one the game loads first; the first build assumed alphabetical order, which was wrong for Omar's setup (see 5d).
   2. It raises `windInfluence` to 0.5 on emitters whose editor name says smoke, steam, dust, fume, vapor, cloud, haze, mist, fog, soot or ash, but not fire, flame, spark, ember, glow, light, debris, chunk, flash, blast, shock, heat or distortion. Both the emitter and the cooked `emitterInfo` are changed.
-  3. It packs the result as `!!!!!CyberpunkWindFramework_SmokeWind.archive`, which loads before `!!!_Ultra_Fog_Lite`.
+  3. It packs the result as `!!!!!NightCityWinds_SmokeWind.archive`, which loads before `!!!_Ultra_Fog_Lite`.
 - **First build:** 389 effects (190 vanilla, 197 from mods, mostly Ultra Fog, and 2 added by Exploded Vehicles, the car and truck dark smoke). Round trip verified: 0.5 on both the emitter and the blob.
 - **Re-run the script after updating any smoke mod.** The in-memory boost is now off by default.
 
@@ -120,7 +120,7 @@ Authored wind influence of the effects you were near (the log records the values
 - **Conflicts among the mods themselves:** only `v_damage_explode_car.particle`, held by Exploded Vehicles (line 106) and EffectsRenderingFix (line 2011). The game uses Exploded Vehicles'; the alphabetical build had patched EffectsRenderingFix's.
 - **Fix:**
   - `build_smoke.py` now resolves each file's winner from the effective `modlist.txt` and archive indexes (`archive_load_order`, `archive_hashes`), and warns when our archive isn't the list's first line.
-  - `smoke\modlist_first.py` puts `!!!!!CyberpunkWindFramework_SmokeWind.archive` on line 1 of each enabled `modlist.txt`, with backups in `backups\modlist` (`--undo` restores them). It edits the modpack's files, so it needs Omar's go-ahead, and a modpack update will undo it.
+  - `smoke\modlist_first.py` puts `!!!!!NightCityWinds_SmokeWind.archive` on line 1 of each enabled `modlist.txt`, with backups in `backups\modlist` (`--undo` restores them). It edits the modpack's files, so it needs Omar's go-ahead, and a modpack update will undo it.
 - **Rebuild (same settings, game-accurate sources):** 389 effects. Five files were held by two mods: `v_damage_explode_car` goes to Exploded Vehicles, and four (two tire blowouts, the biohazard grenade, `lib_vehicle_crash`) go to Ultra Fog over EffectsRenderingFix. The car explosion source is byte-identical to Exploded Vehicles' file.
 - **Known gap:** emitters that carry a *disabled* Drag module (in `v_damage_explode_car`, `kickup_dust` and `smoke_side`) are skipped by the "already has drag" check, so they still get no wind. Fix later by counting only enabled Drag modules.
 - **For release:** players without a `modlist.txt` load alphabetically, so the `!!!!!` name wins there. Modpacks that ship a list need our line added; document that in the mod's install notes.

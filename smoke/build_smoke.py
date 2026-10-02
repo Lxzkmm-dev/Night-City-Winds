@@ -29,7 +29,7 @@ MO2 = r"F:\Cyberpunk 2077"
 MOD_DIR = os.path.join(MO2, "mods", "Cyberpunk Wind Framework", "archive", "pc", "mod")
 # first loaded wins a file conflict; without a modlist.txt archives load alphabetically, and
 # "!!!!!" sorts before "!!!_Ultra_Fog_Lite" and every other "!!!"/"#"/letter-named archive
-ARCHIVE_NAME = "!!!!!CyberpunkWindFramework_SmokeWind"
+ARCHIVE_NAME = "!!!!!NightCityWinds_SmokeWind"
 
 # the fx folders whose effects can carry wind-blown smoke
 PATH_RX = (r"^(base|ep1)\\fx\\("

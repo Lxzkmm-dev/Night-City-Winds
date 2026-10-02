@@ -1,4 +1,4 @@
-﻿// Read-only dump of a CParticleSystem's emitters for the smoke analysis: per emitter, the wind
+// Read-only dump of a CParticleSystem's emitters for the smoke analysis: per emitter, the wind
 // influence, local-space flag and the cooked render blob's simulation signature. Reads fields
 // through the RTTI property table (offsets from the engine itself), never through script, so
 // it is safe on ISerializable-only objects such as particle modules.
@@ -45,7 +45,7 @@ std::string ClassName(RED4ext::ISerializable* aObj)
 }
 } // namespace
 
-namespace CWF::ParticleDump
+namespace NCW::ParticleDump
 {
 void Dump(RED4ext::ISerializable* aSystem, const char* aLabel, const LogFn& aLog)
 {
@@ -124,4 +124,4 @@ void Dump(RED4ext::ISerializable* aSystem, const char* aLabel, const LogFn& aLog
         aLog(text);
     }
 }
-} // namespace CWF::ParticleDump
+} // namespace NCW::ParticleDump

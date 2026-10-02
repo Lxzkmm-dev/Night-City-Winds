@@ -1,11 +1,11 @@
 // =============================================================================
-// CYBERPUNK WIND FRAMEWORK - THE WIND FIELD
+// NIGHT CITY WINDS - THE WIND FIELD
 //
 // The air over Night City, for anything that wants it:
-//   CWFWind.Get(game).At(position, height)   wind velocity there (m/s, world)
-//   CWFWind.Get(game).Exposure(position)     0.25 (sheltered) to 1 (open)
+//   NCWWind.Get(game).At(position, height)   wind velocity there (m/s, world)
+//   NCWWind.Get(game).Exposure(position)     0.25 (sheltered) to 1 (open)
 // and, every frame:
-//   - the wind at the player (or the car they're in) to the native plugin (CWF_SetWind), which
+//   - the wind at the player (or the car they're in) to the native plugin (NCW_SetWind), which
 //     applies it to cars' drag and to loose PhysX props around the player
 //   - a push on V while airborne (PSMImpulse)
 //   - the same wind written into the weather's own WindAreaSettings curves, which drive the
@@ -21,9 +21,9 @@
 //   - shelter: a building or wall close upwind breaks it (rays, a few times a second)
 // Other mods and tests can pin the wind (SetOverride), force a state (ForceState) or scale it.
 // =============================================================================
-module CyberpunkWindFramework
+module NightCityWinds
 
-public class CWFWind extends ScriptableSystem {
+public class NCWWind extends ScriptableSystem {
   // ---- the mean wind (m/s at 10 m), gusts and turbulence as fractions of it, eased ----
   private let m_speed: Float;
   private let m_gust: Float;
@@ -37,7 +37,7 @@ public class CWFWind extends ScriptableSystem {
   private let m_ready: Bool;
   // ---- the weather and the wind state ----
   private let m_weather: CName;
-  private let m_weatherKind: Int32;   // CWFWind.Kind* below
+  private let m_weatherKind: Int32;   // NCWWind.Kind* below
   private let m_state: Int32;         // 0 calm, 1 breeze, 2 windy, 3 gale, 4 storm
   private let m_stateUntil: Float;
   private let m_forcedState: Int32;   // -1 = none
@@ -88,8 +88,8 @@ public class CWFWind extends ScriptableSystem {
   private let m_scale: Float;
   private let m_enabled: Bool;
 
-  public static func Get(game: GameInstance) -> ref<CWFWind> {
-    return GameInstance.GetScriptableSystemsContainer(game).Get(n"CyberpunkWindFramework.CWFWind") as CWFWind;
+  public static func Get(game: GameInstance) -> ref<NCWWind> {
+    return GameInstance.GetScriptableSystemsContainer(game).Get(n"NightCityWinds.NCWWind") as NCWWind;
   }
 
   private func OnAttach() -> Void {
@@ -131,7 +131,7 @@ public class CWFWind extends ScriptableSystem {
     this.m_gen += 1;
     this.m_ticking = false;
     this.RestoreVisuals();
-    CWF_SetWind(new Vector4(0.0, 0.0, 0.0, 0.0));
+    NCW_SetWind(new Vector4(0.0, 0.0, 0.0, 0.0));
   }
 
   // ===================================================================================
@@ -158,7 +158,7 @@ public class CWFWind extends ScriptableSystem {
     let prof = ClampF(PowF(z / 10.0, 0.25), 0.55, 1.6);
     let g = this.Gust();
     let speed = mean * prof * (1.0 + this.m_gust * 2.0 * g);
-    let d = CWFWind.Dir(this.GustHeading());
+    let d = NCWWind.Dir(this.GustHeading());
     // eddies over a few metres
     let a = mean * prof * this.m_turb;
     let ex = SinF(p.X * 0.21 + t * 1.7 + s) * SinF(p.Y * 0.17 - t * 1.3);
@@ -170,7 +170,7 @@ public class CWFWind extends ScriptableSystem {
   // How open `p` is to the wind, 0.25 (right behind a wall or building upwind) to 1 (open):
   // a ray 30 m upwind and one 3 m above it. Rays: ask a few times a second, not every frame.
   public func Exposure(p: Vector4) -> Float {
-    let d = CWFWind.Dir(this.Heading() + 180.0);
+    let d = NCWWind.Dir(this.Heading() + 180.0);
     let sq = GameInstance.GetSpatialQueriesSystem(this.GetGameInstance());
     let best = 1.0;
     let i = 0;
@@ -198,9 +198,9 @@ public class CWFWind extends ScriptableSystem {
     let s = this.m_seed;
     let wander = 20.0 * SinF(t / 170.0 + s) + 8.0 * SinF(t / 41.0 + s * 2.0);
     if this.m_active >= 0 {
-      return CWFWind.Wrap(this.CurveHeading() + wander);
+      return NCWWind.Wrap(this.CurveHeading() + wander);
     }
-    return CWFWind.Wrap(s * 0.36 + 35.0 * SinF(t / 170.0 + s) + 12.0 * SinF(t / 41.0 + s * 2.0));
+    return NCWWind.Wrap(s * 0.36 + 35.0 * SinF(t / 170.0 + s) + 12.0 * SinF(t / 41.0 + s * 2.0));
   }
 
   // the heading with the gust's veer
@@ -223,11 +223,11 @@ public class CWFWind extends ScriptableSystem {
   }
 
   // the wind state: n"calm", n"breeze", n"windy", n"gale", n"storm"
-  public func State() -> CName = CWFWind.StateName(this.m_state)
+  public func State() -> CName = NCWWind.StateName(this.m_state)
 
   // pin the wind state (n"calm" ... n"storm"); n"" or an unknown name lets the weather pick again
   public func ForceState(state: CName) -> Void {
-    this.m_forcedState = CWFWind.StateIndex(state);
+    this.m_forcedState = NCWWind.StateIndex(state);
     this.m_stateUntil = 0.0;
   }
 
@@ -273,7 +273,7 @@ public class CWFWind extends ScriptableSystem {
 
   public func SetEnabled(enabled: Bool) -> Void {
     this.m_enabled = enabled;
-    CWF_SetEnabled(enabled);
+    NCW_SetEnabled(enabled);
     if !enabled {
       this.RestoreVisuals();
     }
@@ -302,7 +302,7 @@ public class CWFWind extends ScriptableSystem {
   }
 
   private func Next() -> Void {
-    let cb = new CWFWindTick();
+    let cb = new NCWWindTick();
     cb.sys = this;
     cb.gen = this.m_gen;
     GameInstance.GetDelaySystem(this.GetGameInstance()).DelayCallback(cb, 0.0, false);
@@ -331,8 +331,8 @@ public class CWFWind extends ScriptableSystem {
         w = w * this.m_exposure;
       }
       this.m_pushed = w;
-      CWF_SetWindOrigin(p);
-      CWF_SetWind(w);
+      NCW_SetWindOrigin(p);
+      NCW_SetWind(w);
       if !IsDefined(veh) {
         this.PlayerWind(player, now);
       } else {
@@ -344,7 +344,7 @@ public class CWFWind extends ScriptableSystem {
         this.m_visualAt = now + 0.1;
         this.SyncVisuals();
         // particle diagnostics, when asked for, run here on the main thread
-        let particles = CWFParticles.Get();
+        let particles = NCWParticles.Get();
         if IsDefined(particles) {
           particles.PollDump();
         }
@@ -428,7 +428,7 @@ public class CWFWind extends ScriptableSystem {
     if this.m_override && speedNow > 0.01 {
       heading = Rad2Deg(AtanF(this.m_overrideWind.X, this.m_overrideWind.Y));
     }
-    let d = CWFWind.Dir(heading);
+    let d = NCWWind.Dir(heading);
     let dir = new Vector4(d.X, d.Y, 0.0, 0.0);
     // the current and the previous weather every time (a transition blends those two); every
     // other state once every 2 s, so a switch to any of them starts from fresh curves
@@ -458,7 +458,7 @@ public class CWFWind extends ScriptableSystem {
     //    sandstorm uses exactly 20, its sunny 0.06 (still trees)
     //  - the weather's own art: its curve average at its design speed, so a weather authored
     //    windier than the physics (a sandstorm's dust) keeps its look
-    let design = CWFWind.DesignSpeed(this.m_cKind[k]);
+    let design = NCWWind.DesignSpeed(this.m_cKind[k]);
     let ratio = speedNow / MaxF(0.5, design);
     let art = this.m_cMean[k] * ratio * ratio;
     let phys = 20.0 * (speedNow / 21.0) * (speedNow / 21.0);
@@ -559,7 +559,7 @@ public class CWFWind extends ScriptableSystem {
     }
     this.m_prevWeather = this.m_weather;
     this.m_weather = st.name;
-    this.m_weatherKind = CWFWind.KindOf(st.name);
+    this.m_weatherKind = NCWWind.KindOf(st.name);
     this.m_prevActive = this.m_active;
     this.m_active = this.CurveSetOf(st.name);
     // a new weather draws a new wind state at once (the mean still eases over ~25 s)
@@ -572,8 +572,8 @@ public class CWFWind extends ScriptableSystem {
   private func PickState(now: Float) -> Void {
     let state = this.m_forcedState;
     if state < 0 {
-      let w = CWFWind.Odds(this.m_weatherKind);
-      let total = w.X + w.Y + w.Z + w.W + CWFWind.StormOdds(this.m_weatherKind);
+      let w = NCWWind.Odds(this.m_weatherKind);
+      let total = w.X + w.Y + w.Z + w.W + NCWWind.StormOdds(this.m_weatherKind);
       let r = RandRangeF(0.0, MaxF(0.0001, total));
       if r < w.X {
         state = 0;
@@ -663,10 +663,10 @@ public class CWFWind extends ScriptableSystem {
     for s in params.renderAreaSettings.areaParameters {
       let w = s as WindAreaSettings;
       if IsDefined(w) && w.enable && CurveDataVector4.GetSize(w.direction) > 0u && CurveDataFloat.GetSize(w.strength) > 0u {
-        let probe = CWFWind.SampleV(w.direction, 12.0);
+        let probe = NCWWind.SampleV(w.direction, 12.0);
         if AbsF(probe.X) + AbsF(probe.Y) > 0.001 {
           ArrayPush(this.m_cName, name);
-          ArrayPush(this.m_cKind, CWFWind.KindOf(name));
+          ArrayPush(this.m_cKind, NCWWind.KindOf(name));
           ArrayPush(this.m_cSettings, w);
           ArrayPush(this.m_cSStart, ArraySize(this.m_sT));
           ArrayPush(this.m_cDStart, ArraySize(this.m_dT));
@@ -890,7 +890,7 @@ public class CWFWind extends ScriptableSystem {
     return "clear";
   }
 
-  public func WeatherKind() -> String = CWFWind.KindName(this.m_weatherKind)
+  public func WeatherKind() -> String = NCWWind.KindName(this.m_weatherKind)
 
   // how many weather states' wind curves are loaded and driven (vanilla: ~13, Nova City 2: ~60)
   public func DrivenStates() -> Int32 = ArraySize(this.m_cSettings)
@@ -908,7 +908,7 @@ public class CWFWind extends ScriptableSystem {
   public static func StateIndex(state: CName) -> Int32 {
     let i = 0;
     while i < 5 {
-      if Equals(CWFWind.StateName(i), state) {
+      if Equals(NCWWind.StateName(i), state) {
         return i;
       }
       i += 1;
@@ -964,8 +964,8 @@ public class CWFWind extends ScriptableSystem {
   }
 }
 
-public class CWFWindTick extends DelayCallback {
-  public let sys: wref<CWFWind>;
+public class NCWWindTick extends DelayCallback {
+  public let sys: wref<NCWWind>;
   public let gen: Int32;
 
   public func Call() -> Void {
