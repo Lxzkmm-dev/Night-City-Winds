@@ -6,6 +6,7 @@
 #include <mutex>
 
 #include "Addresses.hpp"
+#include "SmokeTag.hpp"
 #include "Wind.hpp"
 
 namespace
@@ -34,6 +35,7 @@ Free_t g_free = nullptr;
 constexpr std::ptrdiff_t kEmitterList = 0x190;     // modifier function pointers
 constexpr std::ptrdiff_t kEmitterCount = 0x198;    // how many (= cooked numModifiers)
 constexpr std::ptrdiff_t kEmitterNoList = 0xDC;    // simulation type; non-zero: no CPU list
+constexpr std::ptrdiff_t kEmitterInfluence = 0xD8; // windInfluence, read by the engine's advection
 // the cooked blob: emitterInfo at +0x40 (the setup reads modifierSetMask at +0x88)
 constexpr std::ptrdiff_t kDescMask = 0x88;
 // simulation context passed to every modifier: dt at +0x54
@@ -160,8 +162,16 @@ void AppendIfWindy(std::uint8_t* aEmitter, const std::uint8_t* aDesc)
         return;
     }
     const auto* info = aDesc + kDescMask - g_layout.mask;
-    const float influence = *reinterpret_cast<const float*>(info + g_layout.wind);
+    float influence = *reinterpret_cast<const float*>(info + g_layout.wind);
     const bool local = *(info + g_layout.local) != 0;
+    // smoke the tagger classified at load (docs 5f): give the runtime emitter the influence
+    // floor; the engine advects every particle by wind x this value (+0xD8) each frame
+    const float floor = NCW::SmokeTag::FloorFor(aDesc);
+    if (floor > influence)
+    {
+        *reinterpret_cast<float*>(aEmitter + kEmitterInfluence) = floor;
+        influence = floor;
+    }
     if (!(influence > 0.0f) || local || *reinterpret_cast<const std::uint32_t*>(aEmitter + kEmitterNoList) != 0)
     {
         return;

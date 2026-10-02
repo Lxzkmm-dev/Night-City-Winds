@@ -258,6 +258,11 @@ function WindProbe.DragStats()
     line = line .. string.format("\nsmoke (engine): %d emitters set up | %d given wind | %.0fk particle steps | dt %.4f",
       sm.x, sm.y, sm.z, sm.w)
   end
+  local ok8, tg = pcall(function() return Game.NCW_GetSmokeTagStats() end)
+  if ok8 and tg then
+    line = line .. string.format("\nsmoke tags (load): %d effects | %d emitters | %d collision modules removed | %d setups matched (%03d weak)",
+      tg.x, tg.y, tg.z, math.floor(tg.w), math.floor((tg.w - math.floor(tg.w)) * 1000 + 0.5))
+  end
   local sys = windSystem()
   if sys then
     local ok2, field = pcall(function()

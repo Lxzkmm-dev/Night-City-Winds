@@ -20,6 +20,20 @@ public class NCWParticles extends ScriptableService {
     return GameInstance.GetScriptableServiceContainer().GetService(n"NightCityWinds.NCWParticles") as NCWParticles;
   }
 
+  // Every particle system the game loads goes to the plugin's tagger (one native call, nothing
+  // else: this runs on the loading threads). A ScriptableService, so it listens from game start.
+  private cb func OnLoad() {
+    GameInstance.GetCallbackSystem().RegisterCallback(n"Resource/PostLoad", this, n"OnParticlesLoaded")
+      .AddTarget(ResourceTarget.Type(n"CParticleSystem"));
+  }
+
+  private cb func OnParticlesLoaded(event: ref<ResourceEvent>) {
+    let ps = event.GetResource() as CParticleSystem;
+    if IsDefined(ps) {
+      NCW_TagSmokeSystem(ps, ResRef.ToString(event.GetPath()));
+    }
+  }
+
   // Loads smoke that follows the wind and smoke that doesn't, and, once each is loaded, logs
   // its emitters' signatures to the plugin log. NCWWind calls PollDump from its frame tick.
   public func DumpSignatures() -> Void {

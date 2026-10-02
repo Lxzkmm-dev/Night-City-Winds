@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 
-project(NightCityWinds VERSION 0.5.1 LANGUAGES CXX)
+project(NightCityWinds VERSION 0.6.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

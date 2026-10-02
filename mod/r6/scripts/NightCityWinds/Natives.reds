@@ -43,3 +43,14 @@ public static native func NCW_GetPropWindStats() -> Vector4
 //                                     particle steps in thousands, last dt)
 public static native func NCW_SetSmokeWind(enabled: Bool, gain: Float) -> Void
 public static native func NCW_GetSmokeWindStats() -> Vector4
+
+// smoke tagging at load (what the smoke archive did, done in memory): the plugin classifies the
+// system's emitters by effect path and emitter name, gives smoke a wind influence floor and
+// removes its Collision module. Call from a Resource/PostLoad callback and nothing else there.
+//   NCW_TagSmokeSystem(system, path)
+//   NCW_SetSmokeTagFloor(floor)      default 0.2, the game's own top value for body smoke
+//   NCW_GetSmokeTagStats()           (systems tagged, emitters tagged, collision modules removed,
+//                                    emitter setups matched + weak matches / 1000)
+public static native func NCW_TagSmokeSystem(system: ref<CParticleSystem>, path: String) -> Void
+public static native func NCW_SetSmokeTagFloor(floor: Float) -> Void
+public static native func NCW_GetSmokeTagStats() -> Vector4

@@ -32,6 +32,7 @@
 #include "Addresses.hpp"
 #include "ParticleDump.hpp"
 #include "PhysXWind.hpp"
+#include "SmokeTag.hpp"
 #include "SmokeWind.hpp"
 #include "VehicleDrag.hpp"
 #include "Wind.hpp"
@@ -179,6 +180,41 @@ void NCW_GetSmokeWindStats(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, 
     }
 }
 
+// 0.6.0: smoke tagging at load (replaces the smoke archive): called from a Resource/PostLoad
+// callback on CParticleSystem, on the loading threads, so it does nothing but the tagging
+void NCW_TagSmokeSystem(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t)
+{
+    RED4ext::Handle<RED4ext::ISerializable> system;
+    RED4ext::CString path;
+    RED4ext::GetParameter(aFrame, &system);
+    RED4ext::GetParameter(aFrame, &path);
+    aFrame->code++;
+    if (system.instance)
+    {
+        NCW::SmokeTag::TagSystem(system.instance, path.c_str());
+    }
+}
+
+void NCW_SetSmokeTagFloor(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t)
+{
+    float floor = 0.2f;
+    RED4ext::GetParameter(aFrame, &floor);
+    aFrame->code++;
+    NCW::SmokeTag::Floor().store(floor);
+}
+
+void NCW_GetSmokeTagStats(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, RED4ext::Vector4* aOut, int64_t)
+{
+    aFrame->code++;
+    if (aOut)
+    {
+        auto& s = NCW::SmokeTag::GetStats();
+        *aOut = RED4ext::Vector4{static_cast<float>(s.systemsTagged.load()), static_cast<float>(s.emittersTagged.load()),
+                                 static_cast<float>(s.collisionsStripped.load()),
+                                 static_cast<float>(s.setupHits.load()) + static_cast<float>(s.setupHitsWeak.load()) / 1000.0f};
+    }
+}
+
 void NCW_GetWind(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, RED4ext::Vector4* aOut, int64_t)
 {
     aFrame->code++;
@@ -280,6 +316,15 @@ void PostRegisterTypes()
     smoke->AddParam("Float", "gain");
     rtti->RegisterFunction(smoke);
     rtti->RegisterFunction(Register("NCW_GetSmokeWindStats", &NCW_GetSmokeWindStats, "Vector4"));
+
+    auto tag = Register("NCW_TagSmokeSystem", &NCW_TagSmokeSystem, nullptr);
+    tag->AddParam("handle:CParticleSystem", "system");
+    tag->AddParam("String", "path");
+    rtti->RegisterFunction(tag);
+    auto tagFloor = Register("NCW_SetSmokeTagFloor", &NCW_SetSmokeTagFloor, nullptr);
+    tagFloor->AddParam("Float", "floor");
+    rtti->RegisterFunction(tagFloor);
+    rtti->RegisterFunction(Register("NCW_GetSmokeTagStats", &NCW_GetSmokeTagStats, "Vector4"));
 }
 
 void RegisterTypes()
@@ -304,6 +349,7 @@ RED4EXT_C_EXPORT bool RED4EXT_CALL Main(RED4ext::v1::PluginHandle aHandle, RED4e
 
         NCW::VehicleDrag::Attach(aHandle, aSdk);
         NCW::PhysXWind::Init(aHandle, aSdk);
+        NCW::SmokeTag::Init(aHandle, aSdk);
         NCW::SmokeWind::Attach(aHandle, aSdk);
         break;
     }
@@ -323,7 +369,7 @@ RED4EXT_C_EXPORT void RED4EXT_CALL Query(RED4ext::v1::PluginInfo* aInfo)
 {
     aInfo->name = L"Night City Winds";
     aInfo->author = L"Omar";
-    aInfo->version = RED4EXT_V1_SEMVER(0, 5, 1);
+    aInfo->version = RED4EXT_V1_SEMVER(0, 6, 0);
     // Addresses come from hashes that resolve per game version, and a missing hash switches
     // the feature off instead of crashing, so the plugin doesn't pin a game version.
     aInfo->runtime = RED4EXT_V1_RUNTIME_VERSION_INDEPENDENT;
