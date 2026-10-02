@@ -1,4 +1,4 @@
-# Night City Winds — 0.6.0
+# Night City Winds — 0.7.0
 
 A dynamic, physics-based wind for Cyberpunk 2077 (2.31), built from a reverse-engineering of the
 game's physics and particle engines. One wind field drives everything: cars, loose props, V on
@@ -9,10 +9,14 @@ and the native plugin.
 
 - **Wind field** (`NCWWind`, redscript): wind states (calm, breeze, windy, gale, storm) drawn from
   each weather's own odds, easing between them; direction and the daily rise and fall taken from
-  the weather's original wind curves; gusts, turbulence, a boundary layer near the ground and
-  shelter behind buildings (rays). Works with every vanilla weather and all 70 Nova City 2 states.
+  the weather's original wind curves; gusts that travel downwind as fronts, turbulence, a
+  boundary layer near the ground, and shelter behind buildings (rays) whose wake recovers over
+  60 m and churns in the lee. Works with every vanilla weather and all 70 Nova City 2 states.
 - **Cars** (plugin): the game's own air-drag function is detoured to act on the airspeed
-  (velocity minus wind), so headwinds, tailwinds and crosswinds change how cars drive.
+  (velocity minus wind), so headwinds, tailwinds and crosswinds change how cars drive. On top
+  of that isotropic drag, 0.7.0 adds the crosswind side force a car's flank takes, the yaw it
+  gives (the centre of pressure ahead of the centre of mass) and the wind's share of lift, each
+  capped at a quarter of the car's weight.
 - **Props** (plugin): aerodynamic drag on every loose PhysX body near the player, added before
   each PhysX step; sleeping bodies wake only when the wind could plausibly move them.
 - **Visuals** (redscript): the live wind is written into every weather state's `WindAreaSettings`
@@ -23,8 +27,10 @@ and the native plugin.
   renderer sets them up, a wind influence floor (the engine's own particle wind multiplies by it),
   their fixed velocity curve stubbed, a birth point no higher than 2.5 m, sideways drag, and are
   kept out of PhysX. Works on vanilla smoke and on other mods' smoke (Exploded Vehicles' plumes
-  included) with no load-order dependence. The plugin can also push smoke itself (off by default;
-  the game's wind looks better).
+  included) with no load-order dependence. Each emitter is classed (body smoke, steam, dust,
+  column, exhaust) and takes a floor and drag to match; puffs that would pass through an
+  overpass are retired by short rays cast from the frame tick. The plugin can also push smoke
+  itself (off by default; the game's wind looks better).
 - **Wind Probe** (CET + redscript, dev only): a window to pin the wind, force a state, toggle each
   layer, tune gains and read live stats and diagnostics.
 
@@ -71,10 +77,14 @@ wind.ForceState(n"storm");
 A mod that moves its own physics bodies calls `NCW_IgnoreNear(id, position, radius)` every frame
 so the prop layer leaves them alone. All natives are listed in `mod/r6/scripts/NightCityWinds/Natives.reds`.
 
-## Status of 0.6.0
+## Status of 0.7.0
 
-Working in game: car drag wind, prop wind, wind states, visual sync (trees, cloth, smoke), Nova
-City 2 weather, player wind (opt-in), smoke following the wind including Exploded Vehicles'
-plumes, all from the plugin and scripts. Known limits: smoke emitters that are neither in a smoke
-effect folder nor named like smoke are left alone; column smoke no longer dies on overpasses
-(no collision on the CPU path). How it was found: `docs/SMOKE_WIND_ANALYSIS.md` section 5g.
+Working in game (0.6.0): car drag wind, prop wind, wind states, visual sync (trees, cloth,
+smoke), Nova City 2 weather, player wind (opt-in), smoke following the wind including Exploded
+Vehicles' plumes, all from the plugin and scripts. How it was found: `docs/SMOKE_WIND_ANALYSIS.md`
+section 5g.
+
+New in 0.7.0, to be confirmed in game: car side force, yaw and lift; overpass rays for smoke;
+smoke classes; gust fronts and building wakes; the coverage survey (probe: record, then dump to
+the plugin log) for smoke emitters the tagger misses; `NCW_Version()` and `NCW_IsSmokeHookActive()`
+plus a one-line hook summary at startup in the plugin log.

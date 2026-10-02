@@ -109,8 +109,13 @@ void ResolveLayout()
 // Open-addressed, lock-free, keyed by the runtime emitter pointer. An entry is never removed;
 // emitters are few (hundreds) and the tables are sized well beyond that.
 constexpr std::size_t kSlots = 1u << 12;
-std::atomic<std::uintptr_t> g_smokeEmitters[kSlots]; // tagged smoke
-std::atomic<std::uint64_t> g_influence[kSlots];      // emitter pointer << 16 | influence in 1/1000
+// tagged smoke: emitter pointer | class in the low 4 bits (emitters are 16-byte aligned)
+std::atomic<std::uintptr_t> g_smokeEmitters[kSlots];
+std::atomic<std::uint64_t> g_influence[kSlots]; // emitter pointer << 16 | influence in 1/1000
+// emitters the passes checked against the tag table without a match: pointer << 16 | tries.
+// After kLateTries the check stops (the tag would have come within a few frames of setup).
+std::atomic<std::uint64_t> g_lateTried[kSlots];
+constexpr std::uint32_t kLateTries = 600;
 
 std::size_t SlotOf(const void* aEmitter)
 {
@@ -118,38 +123,139 @@ std::size_t SlotOf(const void* aEmitter)
     return static_cast<std::size_t>((p * 0x9E3779B97F4A7C15ull) >> 52) & (kSlots - 1);
 }
 
-void MarkSmoke(const void* aEmitter)
+void MarkSmoke(const void* aEmitter, NCW::SmokeTag::Class aClass)
 {
-    const auto p = reinterpret_cast<std::uintptr_t>(aEmitter);
+    const auto p = reinterpret_cast<std::uintptr_t>(aEmitter) & ~std::uintptr_t(0xF);
+    const auto v = p | (static_cast<std::uintptr_t>(aClass) & 0xF);
     auto i = SlotOf(aEmitter);
     for (std::size_t n = 0; n < 32; ++n, i = (i + 1) & (kSlots - 1))
     {
         std::uintptr_t expected = 0;
         const auto cur = g_smokeEmitters[i].load(std::memory_order_acquire);
-        if (cur == p || (cur == 0 && g_smokeEmitters[i].compare_exchange_strong(expected, p, std::memory_order_acq_rel)))
+        if ((cur & ~std::uintptr_t(0xF)) == p ||
+            (cur == 0 && g_smokeEmitters[i].compare_exchange_strong(expected, v, std::memory_order_acq_rel)))
         {
             return;
         }
     }
 }
 
-bool IsSmoke(const void* aEmitter)
+// the class of a tagged smoke emitter, None for anything else
+NCW::SmokeTag::Class SmokeClass(const void* aEmitter)
 {
-    const auto p = reinterpret_cast<std::uintptr_t>(aEmitter);
+    const auto p = reinterpret_cast<std::uintptr_t>(aEmitter) & ~std::uintptr_t(0xF);
     auto i = SlotOf(aEmitter);
     for (std::size_t n = 0; n < 32; ++n, i = (i + 1) & (kSlots - 1))
     {
         const auto cur = g_smokeEmitters[i].load(std::memory_order_acquire);
         if (cur == 0)
         {
-            return false;
+            return NCW::SmokeTag::Class::None;
         }
-        if (cur == p)
+        if ((cur & ~std::uintptr_t(0xF)) == p)
         {
-            return true;
+            return static_cast<NCW::SmokeTag::Class>(cur & 0xF);
         }
     }
-    return false;
+    return NCW::SmokeTag::Class::None;
+}
+
+bool IsSmoke(const void* aEmitter)
+{
+    return SmokeClass(aEmitter) != NCW::SmokeTag::Class::None;
+}
+
+// true while this emitter is still worth checking against the tag table
+bool LateTry(const void* aEmitter)
+{
+    const auto key = static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(aEmitter)) << 16;
+    auto& slot = g_lateTried[SlotOf(aEmitter)];
+    auto v = slot.load(std::memory_order_relaxed);
+    if ((v & ~std::uint64_t(0xFFFF)) != key)
+    {
+        slot.store(key | 1, std::memory_order_relaxed); // another emitter had the slot: start over
+        return true;
+    }
+    const auto tries = static_cast<std::uint32_t>(v & 0xFFFF);
+    if (tries >= kLateTries)
+    {
+        return false;
+    }
+    slot.store(key | (tries + 1), std::memory_order_relaxed);
+    return true;
+}
+
+// ---- overpass rays ---------------------------------------------------------------------------
+// Tagged smoke runs on the CPU path, where nothing collides, so a column would rise through an
+// overpass. The modifier samples each puff once per quarter second of its life into a ring; the
+// script tick drains it (NCW_SmokeRaySamples), casts a short ray along each puff's motion on
+// the main thread, and reports the hits (NCW_SmokeRayHit). A hit goes into a second ring keyed
+// by the particle; the modifier kills the puff on its next step, from the particle thread, so no
+// particle memory is touched from outside the simulation.
+struct RaySample
+{
+    std::atomic<std::uint32_t> ready{0};
+    std::uintptr_t particle = 0;
+    std::uint32_t seed = 0;
+    float pos[3] = {};
+    float vel[3] = {};
+};
+constexpr std::size_t kRaySamples = 256;
+RaySample g_raySamples[kRaySamples];
+std::atomic<std::uint32_t> g_rayCount{0};
+// kill requests: particle pointer | seed-derived low bits, looked up per particle step
+constexpr std::size_t kKillSlots = 256;
+std::atomic<std::uint64_t> g_kills[kKillSlots]; // particle pointer ^ (seed << 48)
+std::atomic<std::uint32_t> g_raysOn{1};
+
+std::size_t KillSlot(std::uintptr_t aParticle)
+{
+    return static_cast<std::size_t>((aParticle >> 4) * 0x9E3779B97F4A7C15ull >> 56) & (kKillSlots - 1);
+}
+
+std::uint64_t KillKey(std::uintptr_t aParticle, std::uint32_t aSeed)
+{
+    return static_cast<std::uint64_t>(aParticle) ^ (static_cast<std::uint64_t>(aSeed & 0xFFFF) << 48);
+}
+
+void SampleForRay(std::uint8_t* aParticle, float aDt)
+{
+    const float age = *reinterpret_cast<const float*>(aParticle + 0xC);
+    // once per 0.25 s of life, after the first quarter second (the jet is the source's business)
+    const float phase = std::fmod(age, 0.25f);
+    if (age < 0.25f || phase >= aDt)
+    {
+        return;
+    }
+    const auto i = g_rayCount.fetch_add(1, std::memory_order_relaxed);
+    if (i >= kRaySamples)
+    {
+        return;
+    }
+    auto& s = g_raySamples[i];
+    s.particle = reinterpret_cast<std::uintptr_t>(aParticle);
+    s.seed = *reinterpret_cast<const std::uint32_t*>(aParticle + 0x94);
+    std::memcpy(s.pos, aParticle, sizeof(s.pos));
+    std::memcpy(s.vel, aParticle + 0x14, sizeof(s.vel));
+    s.ready.store(1, std::memory_order_release);
+}
+
+// true (and the request consumed) when this puff was reported as hitting something
+bool KillRequested(std::uint8_t* aParticle)
+{
+    auto& slot = g_kills[KillSlot(reinterpret_cast<std::uintptr_t>(aParticle))];
+    const auto v = slot.load(std::memory_order_acquire);
+    if (v == 0)
+    {
+        return false;
+    }
+    const auto seed = *reinterpret_cast<const std::uint32_t*>(aParticle + 0x94);
+    if (v != KillKey(reinterpret_cast<std::uintptr_t>(aParticle), seed))
+    {
+        return false;
+    }
+    slot.store(0, std::memory_order_release);
+    return true;
 }
 
 void Remember(const void* aEmitter, float aInfluence)
@@ -188,18 +294,33 @@ void SmokeModifier(std::uint8_t* aParticle, std::uint8_t* aEmitter10, std::uint8
     auto* vel = reinterpret_cast<float*>(aParticle + 0x14);
     auto* keep = reinterpret_cast<float*>(aParticle + 0x20);
     // Tagged smoke: bleed off the puff's own sideways motion, quadratically like the engine's
-    // drag, on the base velocity too. Many columns are authored to lean one fixed way; with that
-    // damped, the engine's wind advection (position += wind x influence x dt, every frame) sets
-    // the drift. Vertical motion stays the effect's own.
-    if (IsSmoke(emitter))
+    // drag (the coefficient by class), on the base velocity too. Many columns are authored to
+    // lean one fixed way; with that damped, the engine's wind advection (position += wind x
+    // influence x dt, every frame) sets the drift. Vertical motion stays the effect's own.
+    const auto cls = SmokeClass(emitter);
+    if (cls != NCW::SmokeTag::Class::None)
     {
-        constexpr float kSideDrag = 1.0f;
         const float h = std::sqrt(keep[0] * keep[0] + keep[1] * keep[1]);
-        const float f = 1.0f / (1.0f + kSideDrag * dt * h);
+        const float f = 1.0f / (1.0f + NCW::SmokeTag::DragFor(cls) * dt * h);
         keep[0] *= f;
         keep[1] *= f;
         vel[0] *= f;
         vel[1] *= f;
+        if (g_raysOn.load(std::memory_order_relaxed))
+        {
+            if (KillRequested(aParticle))
+            {
+                // age past its lifetime: the pass retires it (what killOnCollision did)
+                const float invLife = *reinterpret_cast<const float*>(aParticle + 0x10);
+                if (invLife > 0.0f)
+                {
+                    *reinterpret_cast<float*>(aParticle + 0xC) = 1.0f / invLife + 1.0f;
+                }
+                g_stats.puffsKilled.fetch_add(1, std::memory_order_relaxed);
+                return;
+            }
+            SampleForRay(aParticle, dt);
+        }
     }
     if (!g_settings.enabled.load(std::memory_order_relaxed))
     {
@@ -328,9 +449,9 @@ void AppendModifier(std::uint8_t* aEmitter, float aInfluence)
 
 // Everything a tagged smoke emitter needs: the influence floor the engine's own advection
 // multiplies the wind by, the curve stub, the lowered birth point, and our modifier.
-void TagEmitter(std::uint8_t* aEmitter, float aFloor)
+void TagEmitter(std::uint8_t* aEmitter, float aFloor, NCW::SmokeTag::Class aClass)
 {
-    MarkSmoke(aEmitter);
+    MarkSmoke(aEmitter, aClass);
     NeutralizeVol(aEmitter);
     LowerSpawn(aEmitter);
     auto& influence = At<float>(aEmitter, kEmitterInfluence);
@@ -356,10 +477,11 @@ void OnEmitterSetup(std::uint8_t* aEmitter, const std::uint8_t* aDesc)
     const auto* info = aDesc + kDescMask - g_layout.mask;
     const float influence = *reinterpret_cast<const float*>(info + g_layout.wind);
     const bool local = *(info + g_layout.local) != 0;
-    const float floor = NCW::SmokeTag::FloorFor(aDesc);
+    NCW::SmokeTag::Class cls;
+    const float floor = NCW::SmokeTag::FloorFor(aDesc, cls);
     if (floor > 0.0f)
     {
-        TagEmitter(aEmitter, floor);
+        TagEmitter(aEmitter, floor, cls);
         return;
     }
     // an emitter with its own wind influence gets the (optional) push
@@ -393,7 +515,7 @@ void* Setup_Detour(void* a1, void* aDesc, void* a3, void* a4)
 // PhysX write-back still found the real pool.
 void EnsureSmoke(std::uint8_t* aEmitter)
 {
-    if (!aEmitter || IsSmoke(aEmitter))
+    if (!aEmitter || IsSmoke(aEmitter) || !LateTry(aEmitter))
     {
         return;
     }
@@ -404,13 +526,14 @@ void EnsureSmoke(std::uint8_t* aEmitter)
     {
         --numMod;
     }
+    NCW::SmokeTag::Class cls;
     const float floor = NCW::SmokeTag::FloorForFields(
         At<const std::uint64_t>(aEmitter, kEmitterModMask), At<const std::uint64_t>(aEmitter, kEmitterInitMask), numMod,
         At<const std::uint32_t>(aEmitter, kEmitterNumInit), At<const std::uint32_t>(aEmitter, kEmitterMaxParticles),
-        At<const std::uint64_t>(aEmitter, kEmitterSimHash));
+        At<const std::uint64_t>(aEmitter, kEmitterSimHash), cls);
     if (floor > 0.0f && g_alloc && g_free)
     {
-        TagEmitter(aEmitter, floor);
+        TagEmitter(aEmitter, floor, cls);
         g_stats.lateMatches.fetch_add(1, std::memory_order_relaxed);
     }
 }
@@ -536,6 +659,45 @@ void LogSettingChange(bool aEnabled, float aGain)
     if (g_sdk)
     {
         g_sdk->logger->InfoF(g_handle, "smoke wind setting: enabled %d gain %.2f", aEnabled ? 1 : 0, aGain);
+    }
+}
+
+void SetRays(bool aOn)
+{
+    g_raysOn.store(aOn ? 1u : 0u, std::memory_order_relaxed);
+}
+
+std::uint32_t DrainRaySamples(RaySampleOut* aOut, std::uint32_t aMax)
+{
+    const auto n = std::min<std::uint32_t>(g_rayCount.load(std::memory_order_acquire), kRaySamples);
+    std::uint32_t out = 0;
+    for (std::uint32_t i = 0; i < n && out < aMax; ++i)
+    {
+        auto& s = g_raySamples[i];
+        if (!s.ready.load(std::memory_order_acquire))
+        {
+            continue;
+        }
+        aOut[out].key = KillKey(s.particle, s.seed);
+        aOut[out].slot = static_cast<std::uint32_t>(KillSlot(s.particle));
+        std::memcpy(aOut[out].pos, s.pos, sizeof(s.pos));
+        std::memcpy(aOut[out].vel, s.vel, sizeof(s.vel));
+        ++out;
+    }
+    for (std::uint32_t i = 0; i < n; ++i)
+    {
+        g_raySamples[i].ready.store(0, std::memory_order_relaxed);
+    }
+    g_rayCount.store(0, std::memory_order_release);
+    g_stats.raysCast.fetch_add(out, std::memory_order_relaxed);
+    return out;
+}
+
+void RequestKill(std::uint64_t aKey, std::uint32_t aSlot)
+{
+    if (aSlot < kKillSlots)
+    {
+        g_kills[aSlot].store(aKey, std::memory_order_release);
     }
 }
 } // namespace NCW::SmokeWind

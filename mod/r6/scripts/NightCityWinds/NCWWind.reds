@@ -16,9 +16,11 @@
 //     lasts a few minutes, then the next is drawn. The mean eases between them (~25 s)
 //   - direction and the daily rise and fall from the weather's original WindAreaSettings
 //     curves (copied when loaded, before we start writing to them), with a slow wander
-//   - gusts every few seconds, veering a little; turbulence over a few metres
+//   - gusts every few seconds, veering a little, travelling downwind as fronts; turbulence
+//     over a few metres
 //   - height: slowed near the ground (power law, 10 m reference)
-//   - shelter: a building or wall close upwind breaks it (rays, a few times a second)
+//   - shelter: a building or wall upwind breaks it (rays, a few times a second), its wake
+//     recovering over 60 m and churning (extra turbulence) in the lee
 // Other mods and tests can pin the wind (SetOverride), force a state (ForceState) or scale it.
 // =============================================================================
 module NightCityWinds
@@ -75,6 +77,7 @@ public class NCWWind extends ScriptableSystem {
   private let m_exposure: Float;
   private let m_exposureAt: Float;
   private let m_pushed: Vector4;
+  private let m_originP: Vector4;              // where the wind is sampled for the physics
   // ---- V on foot ----
   private let m_playerOn: Bool;
   private let m_prevPos: Vector4;
@@ -139,7 +142,10 @@ public class NCWWind extends ScriptableSystem {
   // ===================================================================================
   // the wind at `p` (m/s, world), `h` metres above the ground (below 0: not known, taken as 10 m);
   // without shelter: multiply by Exposure(p)
-  public func At(p: Vector4, h: Float) -> Vector4 {
+  public func At(p: Vector4, h: Float) -> Vector4 = this.AtTurb(p, h, 0.0)
+
+  // the same with extra turbulence (a fraction of the mean), for a building's wake
+  public func AtTurb(p: Vector4, h: Float, extraTurb: Float) -> Vector4 {
     if !this.m_enabled {
       return new Vector4(0.0, 0.0, 0.0, 0.0);
     }
@@ -156,11 +162,11 @@ public class NCWWind extends ScriptableSystem {
     // the boundary layer: slower near the ground, stronger higher up
     let z = h < 0.0 ? 10.0 : MaxF(1.0, h);
     let prof = ClampF(PowF(z / 10.0, 0.25), 0.55, 1.6);
-    let g = this.Gust();
+    let g = this.GustAt(p);
     let speed = mean * prof * (1.0 + this.m_gust * 2.0 * g);
-    let d = NCWWind.Dir(this.GustHeading());
+    let d = NCWWind.Dir(this.GustHeadingAt(p));
     // eddies over a few metres
-    let a = mean * prof * this.m_turb;
+    let a = mean * prof * (this.m_turb + MaxF(0.0, extraTurb));
     let ex = SinF(p.X * 0.21 + t * 1.7 + s) * SinF(p.Y * 0.17 - t * 1.3);
     let ey = SinF(p.Y * 0.23 + t * 1.1 + s) * CosF(p.X * 0.19 + t * 0.9);
     let ez = 0.5 * SinF((p.X + p.Y) * 0.15 + t * 2.1) * SinF(p.Z * 0.3 + t + s);
@@ -168,7 +174,9 @@ public class NCWWind extends ScriptableSystem {
   }
 
   // How open `p` is to the wind, 0.25 (right behind a wall or building upwind) to 1 (open):
-  // a ray 30 m upwind and one 3 m above it. Rays: ask a few times a second, not every frame.
+  // a ray 60 m upwind and one 3 m above it; the wake recovers with the square root of the
+  // distance, so a building's lee reaches several building lengths downwind. Rays: ask a few
+  // times a second, not every frame.
   public func Exposure(p: Vector4) -> Float {
     let d = NCWWind.Dir(this.Heading() + 180.0);
     let sq = GameInstance.GetSpatialQueriesSystem(this.GetGameInstance());
@@ -176,10 +184,11 @@ public class NCWWind extends ScriptableSystem {
     let i = 0;
     while i < 2 {
       let from = p + new Vector4(0.0, 0.0, 1.0 + 3.0 * Cast<Float>(i), 0.0);
-      let to = from + d * 30.0;
+      let to = from + d * 60.0;
       let hit: TraceResult;
       if sq.SyncRaycastByCollisionGroup(from, to, n"Static", hit, true, false) {
-        best = MinF(best, 0.25 + 0.75 * Vector4.Distance(from, Cast<Vector4>(hit.position)) / 30.0);
+        let frac = ClampF(Vector4.Distance(from, Cast<Vector4>(hit.position)) / 60.0, 0.0, 1.0);
+        best = MinF(best, 0.25 + 0.75 * SqrtF(frac));
       }
       i += 1;
     }
@@ -203,18 +212,31 @@ public class NCWWind extends ScriptableSystem {
     return NCWWind.Wrap(s * 0.36 + 35.0 * SinF(t / 170.0 + s) + 12.0 * SinF(t / 41.0 + s * 2.0));
   }
 
-  // the heading with the gust's veer
-  public func GustHeading() -> Float {
-    let t = this.Clock();
-    return this.Heading() + 15.0 * SinF(t * 0.5 + this.m_seed) * this.Gust();
+  // the heading with the gust's veer, at the wind origin (the player or their car)
+  public func GustHeading() -> Float = this.GustHeadingAt(this.m_originP)
+
+  public func GustHeadingAt(p: Vector4) -> Float {
+    let t = this.GustClock(p);
+    return this.Heading() + 15.0 * SinF(t * 0.5 + this.m_seed) * this.GustAt(p);
   }
 
-  // the gust factor now, 0 (lull) to about 1 (a full gust)
-  public func Gust() -> Float {
-    let t = this.Clock();
+  // the gust factor now at the wind origin, 0 (lull) to about 1 (a full gust)
+  public func Gust() -> Float = this.GustAt(this.m_originP)
+
+  // Gusts are fronts that travel downwind at the mean speed, not a pulse everywhere at once:
+  // the gust clock at `p` runs behind by the time the front takes to get there, so a gust
+  // reaches the trees upwind first, then the car, then the smoke downwind.
+  public func GustAt(p: Vector4) -> Float {
+    let t = this.GustClock(p);
     let s = this.m_seed;
     let g = 0.55 * SinF(t * 0.71 + s) + 0.35 * SinF(t * 1.93 + s * 2.0) + 0.25 * SinF(t * 0.29 + s * 3.0) - 0.25;
     return ClampF(g / 0.9, 0.0, 1.0);
+  }
+
+  private func GustClock(p: Vector4) -> Float {
+    let d = NCWWind.Dir(this.Heading());
+    let along = p.X * d.X + p.Y * d.Y;
+    return this.Clock() - along / MaxF(3.0, this.m_speed);
   }
 
   public func Weather() -> CName {
@@ -325,14 +347,21 @@ public class NCWWind extends ScriptableSystem {
         // shelter eases in and out over about a second, so passing a building doesn't snap
         this.m_exposure += (this.Exposure(p) - this.m_exposure) * 0.3;
       }
-      // a car's body sits about 1 m up: the ground's boundary layer slows the wind there
-      let w = this.At(p, 1.5);
+      this.m_originP = p;
+      // a car's body sits about 1 m up: the ground's boundary layer slows the wind there; in
+      // a building's wake the mean drops (shelter) and the eddies grow (wake turbulence)
+      let w = this.AtTurb(p, 1.5, 0.6 * (1.0 - this.m_exposure));
       if !this.m_override {
         w = w * this.m_exposure;
       }
       this.m_pushed = w;
       NCW_SetWindOrigin(p);
       NCW_SetWind(w);
+      // overpass rays for smoke, on the main thread
+      let particles = NCWParticles.Get();
+      if IsDefined(particles) {
+        particles.RayTick(this.GetGameInstance());
+      }
       if !IsDefined(veh) {
         this.PlayerWind(player, now);
       } else {

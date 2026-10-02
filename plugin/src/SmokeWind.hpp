@@ -40,6 +40,18 @@ struct Stats
     std::atomic<std::uint32_t> lateMatches{0};    // emitters tagged from a pass, not the setup
     std::atomic<std::uint32_t> curvesStubbed{0};  // VelocityOverLife slots replaced
     std::atomic<std::uint32_t> spawnsLowered{0};  // birth points brought down
+    std::atomic<std::uint32_t> raysCast{0};       // puff samples handed to the script's rays
+    std::atomic<std::uint32_t> puffsKilled{0};    // puffs retired on a hit
+};
+
+// one puff sampled for an overpass ray: where it is and how it moves, plus the handle a hit
+// is reported with
+struct RaySampleOut
+{
+    std::uint64_t key;
+    std::uint32_t slot;
+    float pos[3];
+    float vel[3];
 };
 
 bool Attach(RED4ext::v1::PluginHandle aHandle, const RED4ext::v1::Sdk* aSdk);
@@ -48,4 +60,9 @@ bool IsAttached();
 Settings& GetSettings();
 Stats& GetStats();
 void LogSettingChange(bool aEnabled, float aGain);
+// overpass rays (on by default): the script tick drains the puff samples each frame, casts the
+// rays on the main thread and reports hits back
+void SetRays(bool aOn);
+std::uint32_t DrainRaySamples(RaySampleOut* aOut, std::uint32_t aMax);
+void RequestKill(std::uint64_t aKey, std::uint32_t aSlot);
 } // namespace NCW::SmokeWind

@@ -244,8 +244,17 @@ function WindProbe.DragStats()
   local ok, s = pcall(function() return Game.NCW_GetVehicleDragStats() end)
   local line = "plugin not loaded"
   if ok and s then
-    line = string.format("drag calls %d | ground %.1f m/s (%.0f km/h) | airspeed %.1f m/s | airResistanceFactor %.3f",
+    local okv, ver = pcall(function() return Game.NCW_Version() end)
+    local okh1, carHook = pcall(function() return Game.NCW_IsVehicleHookActive() end)
+    local okh2, smokeHook = pcall(function() return Game.NCW_IsSmokeHookActive() end)
+    line = string.format("Night City Winds %s | hooks: cars %s, smoke %s", okv and ver or "?",
+      tostring(okh1 and carHook), tostring(okh2 and smokeHook))
+    line = line .. string.format("\ndrag calls %d | ground %.1f m/s (%.0f km/h) | airspeed %.1f m/s | airResistanceFactor %.3f",
       s.x, s.y, s.y * 3.6, s.z, s.w)
+    local oka, ae = pcall(function() return Game.NCW_GetVehicleAeroStats() end)
+    if oka and ae then
+      line = line .. string.format("\naero: side force %.0f N | yaw torque %.0f N m | lift %.0f N", ae.x, ae.y, ae.z)
+    end
   end
   local ok3, ps = pcall(function() return Game.NCW_GetPropWindStats() end)
   local ok4, hooked = pcall(function() return Game.NCW_IsPropHookActive() end)
@@ -262,6 +271,10 @@ function WindProbe.DragStats()
   if ok8 and tg then
     line = line .. string.format("\nsmoke tags (load): %d effects | %d emitters | %d physics pools cleared | %d setups matched (%03d weak)",
       tg.x, tg.y, tg.z, math.floor(tg.w), math.floor((tg.w - math.floor(tg.w)) * 1000 + 0.5))
+  end
+  local ok9, ry = pcall(function() return Game.NCW_GetSmokeRayStats() end)
+  if ok9 and ry then
+    line = line .. string.format("\nsmoke rays: %d puffs checked | %d retired on a hit | survey entries %d", ry.x, ry.y, ry.z)
   end
   local sys = windSystem()
   if sys then
@@ -355,6 +368,35 @@ registerForEvent("onDraw", function()
       local sys = windSystem()
       if sys then sys:ForceState(CName.new("")) end
       out("== wind state: back to the weather's odds")
+    end
+    ImGui.Text("Car aero (plugin): crosswind side force, yaw, lift")
+    WindProbe.aeroOn = ImGui.Checkbox("car aero", WindProbe.aeroOn ~= false)
+    WindProbe.aeroSide = ImGui.SliderFloat("side gain", WindProbe.aeroSide or 1.0, 0.0, 3.0, "%.2f")
+    WindProbe.aeroLever = ImGui.SliderFloat("yaw lever (m ahead of the centre of mass)", WindProbe.aeroLever or 0.5, -1.0, 2.0, "%.2f")
+    WindProbe.aeroLift = ImGui.SliderFloat("lift Cl x area (m2)", WindProbe.aeroLift or 2.4, 0.0, 6.0, "%.2f")
+    if WindProbe.aeroSent ~= (tostring(WindProbe.aeroOn) .. WindProbe.aeroSide .. WindProbe.aeroLever .. WindProbe.aeroLift) then
+      local ok = pcall(function() Game.NCW_SetVehicleAero(WindProbe.aeroOn, WindProbe.aeroSide, WindProbe.aeroLever, WindProbe.aeroLift) end)
+      if ok then
+        WindProbe.aeroSent = tostring(WindProbe.aeroOn) .. WindProbe.aeroSide .. WindProbe.aeroLever .. WindProbe.aeroLift
+      end
+    end
+    ImGui.Text("Smoke (plugin)")
+    WindProbe.raysOn = ImGui.Checkbox("overpass rays (smoke dies on what it hits)", WindProbe.raysOn ~= false)
+    if WindProbe.raysSent ~= WindProbe.raysOn then
+      local ok = pcall(function()
+        Game.GetScriptableServiceContainer():GetService("NightCityWinds.NCWParticles"):SetRays(WindProbe.raysOn)
+      end)
+      if ok then WindProbe.raysSent = WindProbe.raysOn end
+    end
+    WindProbe.surveyOn = ImGui.Checkbox("record untagged smoke (survey)", WindProbe.surveyOn == true)
+    if WindProbe.surveySent ~= WindProbe.surveyOn then
+      local ok = pcall(function() Game.NCW_SetSmokeSurvey(WindProbe.surveyOn) end)
+      if ok then WindProbe.surveySent = WindProbe.surveyOn end
+    end
+    ImGui.SameLine()
+    if ImGui.Button("Dump survey to the plugin log") then
+      local ok, n = pcall(function() return Game.NCW_DumpSmokeSurvey() end)
+      out(ok and ("== survey: " .. tostring(n) .. " untagged particle systems logged") or ("survey failed: " .. tostring(n)))
     end
     ImGui.Text("Visuals (foliage, cloth, smoke, fire)")
     WindProbe.visualOn = ImGui.Checkbox("write wind into the weather curves", WindProbe.visualOn ~= false)

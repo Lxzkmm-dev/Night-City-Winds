@@ -2,9 +2,11 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdio>
 #include <cstring>
 #include <mutex>
 #include <string>
+#include <vector>
 
 namespace
 {
@@ -14,7 +16,7 @@ NCW::SmokeTag::Stats g_stats;
 std::atomic<float> g_floor{0.2f}; // the game's own top value for body smoke (survey.py)
 std::atomic<std::uint32_t> g_logged{0};
 
-// ---- the same rules as smoke/build_smoke.py --------------------------------------------------
+// ---- the same rules as the retired smoke/build_smoke.py, plus a class per emitter ------------
 const char* const kPaths[] = {
     "\\fx\\environment\\smoke", "\\fx\\environment\\pyro",   "\\fx\\environment\\dust",  "\\fx\\environment\\steam",
     "\\fx\\vehicles\\_damage",   "\\fx\\vehicles\\_exhaust", "\\fx\\vehicles\\car",      "\\fx\\vehicles\\bike",
@@ -23,6 +25,9 @@ const char* const kPaths[] = {
 const char* const kSmoke[] = {"smoke", "steam", "dust", "fume", "vapo", "cloud", "haze", "mist", "fog", "soot", "ash"};
 const char* const kSkip[] = {"fire",  "flame", "spark", "ember", "glow",  "light", "debris",
                              "chunk", "flash", "blast", "shock", "heat",  "distort"};
+const char* const kSteam[] = {"steam", "vapo", "mist", "fog", "haze"};
+const char* const kDust[] = {"dust", "ash", "soot", "sand"};
+const char* const kColumn[] = {"column", "plume", "pillar", "tower", "big", "large", "huge", "thick", "dense", "dark"};
 
 std::string Lower(const char* aText)
 {
@@ -44,6 +49,44 @@ bool ContainsAny(const std::string& aText, const char* const* aWords, std::size_
         }
     }
     return false;
+}
+
+NCW::SmokeTag::Class Classify(const std::string& aPath, const std::string& aName)
+{
+    using NCW::SmokeTag::Class;
+    if (aPath.find("_exhaust") != std::string::npos || aName.find("exhaust") != std::string::npos)
+    {
+        return Class::Exhaust;
+    }
+    if (ContainsAny(aName, kSteam, std::size(kSteam)))
+    {
+        return Class::Steam;
+    }
+    if (ContainsAny(aName, kDust, std::size(kDust)))
+    {
+        return Class::Dust;
+    }
+    if (ContainsAny(aName, kColumn, std::size(kColumn)) || aPath.find("column") != std::string::npos ||
+        aPath.find("\\huge\\") != std::string::npos || aPath.find("\\large\\") != std::string::npos)
+    {
+        return Class::Column;
+    }
+    return Class::Smoke;
+}
+
+// each class's influence floor relative to body smoke's (the game's own ratios: thin steam
+// detail is cooked at 0.5, body smoke 0.1-0.2, tall columns 0)
+float FloorScale(NCW::SmokeTag::Class aClass)
+{
+    using NCW::SmokeTag::Class;
+    switch (aClass)
+    {
+    case Class::Steam: return 1.75f;
+    case Class::Dust: return 1.5f;
+    case Class::Column: return 0.75f;
+    case Class::Exhaust: return 1.25f;
+    default: return 1.0f;
+    }
 }
 
 // ---- RTTI offsets, resolved once ------------------------------------------------------------
@@ -184,18 +227,23 @@ std::uint64_t StrongFingerprint(const std::uint8_t* aBlob)
     return (h | 1) ^ 0x8000000000000000ull;
 }
 
-// ---- the table: fingerprint -> influence floor (in 1/1000), lock-free -------------------------
+// ---- the table: fingerprint -> class and influence floor (in 1/1000), lock-free -----------------
 constexpr std::size_t kSlots = 1u << 12;
 struct Slot
 {
     std::atomic<std::uint64_t> key{0};
-    std::atomic<std::uint32_t> value{0};
+    std::atomic<std::uint32_t> value{0}; // floor in 1/1000 | class << 24
 };
 Slot g_table[kSlots];
 
-void Store(std::uint64_t aKey, float aFloor)
+std::uint32_t Pack(float aFloor, NCW::SmokeTag::Class aClass)
 {
-    const auto v = static_cast<std::uint32_t>(std::clamp(aFloor, 0.0f, 10.0f) * 1000.0f);
+    const auto mille = static_cast<std::uint32_t>(std::clamp(aFloor, 0.0f, 10.0f) * 1000.0f);
+    return (mille & 0xFFFFFF) | (static_cast<std::uint32_t>(aClass) << 24);
+}
+
+void Store(std::uint64_t aKey, std::uint32_t aValue)
+{
     auto start = static_cast<std::size_t>((aKey * 0x9E3779B97F4A7C15ull) >> 52);
     for (std::size_t i = 0; i < 16; ++i)
     {
@@ -206,7 +254,8 @@ void Store(std::uint64_t aKey, float aFloor)
         {
             // keep the larger floor if two emitters share a fingerprint
             std::uint32_t cur = s.value.load(std::memory_order_relaxed);
-            while (cur < v && !s.value.compare_exchange_weak(cur, v, std::memory_order_release))
+            while ((cur & 0xFFFFFF) < (aValue & 0xFFFFFF) &&
+                   !s.value.compare_exchange_weak(cur, aValue, std::memory_order_release))
             {
             }
             return;
@@ -214,7 +263,7 @@ void Store(std::uint64_t aKey, float aFloor)
     }
 }
 
-float Load(std::uint64_t aKey)
+float Load(std::uint64_t aKey, NCW::SmokeTag::Class& aClass)
 {
     auto start = static_cast<std::size_t>((aKey * 0x9E3779B97F4A7C15ull) >> 52);
     for (std::size_t i = 0; i < 16; ++i)
@@ -227,7 +276,9 @@ float Load(std::uint64_t aKey)
         }
         if (k == aKey)
         {
-            return static_cast<float>(s.value.load(std::memory_order_acquire)) / 1000.0f;
+            const auto v = s.value.load(std::memory_order_acquire);
+            aClass = static_cast<NCW::SmokeTag::Class>(v >> 24);
+            return static_cast<float>(v & 0xFFFFFF) / 1000.0f;
         }
     }
     return 0.0f;
@@ -237,6 +288,30 @@ template<typename T>
 T* Field(void* aInstance, RED4ext::CProperty* aProp)
 {
     return (aInstance && aProp) ? reinterpret_cast<T*>(static_cast<char*>(aInstance) + aProp->valueOffset) : nullptr;
+}
+
+// ---- the coverage survey -------------------------------------------------------------------------
+std::atomic<bool> g_survey{false};
+std::mutex g_surveyLock;
+std::vector<std::string> g_surveyLines; // written under the lock, on the loading threads
+constexpr std::size_t kSurveyMax = 4000;
+
+void RecordSurvey(const std::string& aPath, bool aSmokePath, const std::vector<std::string>& aEmitters)
+{
+    std::string line = aSmokePath ? "survey (smoke folder, no tag): " : "survey (other folder): ";
+    line += aPath;
+    line += " |";
+    for (const auto& e : aEmitters)
+    {
+        line += ' ';
+        line += e;
+    }
+    std::lock_guard<std::mutex> lock(g_surveyLock);
+    if (g_surveyLines.size() < kSurveyMax)
+    {
+        g_surveyLines.push_back(std::move(line));
+        g_stats.surveyEntries.fetch_add(1, std::memory_order_relaxed);
+    }
 }
 } // namespace
 
@@ -258,14 +333,17 @@ void TagSystem(RED4ext::ISerializable* aSystem, const char* aPath)
     }
     std::string path = Lower(aPath);
     std::replace(path.begin(), path.end(), '/', '\\');
-    const bool wanted = path.find(".particle") != std::string::npos && ContainsAny(path, kPaths, std::size(kPaths));
+    const bool particle = path.find(".particle") != std::string::npos;
+    const bool wanted = particle && ContainsAny(path, kPaths, std::size(kPaths));
+    const bool survey = g_survey.load(std::memory_order_relaxed) && particle;
     auto emitters = Field<RED4ext::DynArray<RED4ext::Handle<RED4ext::ISerializable>>>(aSystem, g_layout.sysEmitters);
-    if (!wanted || !emitters)
+    if ((!wanted && !survey) || !emitters)
     {
         return;
     }
     const float floor = g_floor.load(std::memory_order_relaxed);
     std::uint32_t tagged = 0, collisions = 0;
+    std::vector<std::string> names; // for the survey only
     for (std::uint32_t i = 0; i < emitters->Size(); ++i)
     {
         auto* emitter = (*emitters)[i].instance;
@@ -285,7 +363,15 @@ void TagSystem(RED4ext::ISerializable* aSystem, const char* aPath)
             auto* n = Field<RED4ext::CName>(emitter, g_layout.emName);
             editorName = Lower(n ? n->ToString() : "");
         }
-        if (!ContainsAny(editorName, kSmoke, std::size(kSmoke)) || ContainsAny(editorName, kSkip, std::size(kSkip)))
+        auto* wind = Field<float>(emitter, g_layout.emWind);
+        const bool smokeName = ContainsAny(editorName, kSmoke, std::size(kSmoke)) && !ContainsAny(editorName, kSkip, std::size(kSkip));
+        if (survey)
+        {
+            char buf[32];
+            std::snprintf(buf, sizeof(buf), "(%.2f%s)", wind ? *wind : -1.0f, smokeName ? ", smoke name" : "");
+            names.push_back((editorName.empty() ? std::string("?") : editorName) + buf);
+        }
+        if (!wanted || !smokeName)
         {
             continue;
         }
@@ -296,19 +382,21 @@ void TagSystem(RED4ext::ISerializable* aSystem, const char* aPath)
             continue;
         }
         ++tagged;
+        const Class cls = Classify(path, editorName);
+        const float myFloor = floor * FloorScale(cls);
         // remember the cooked emitter, with and without its record bytes
-        Store(StrongFingerprint(blob), floor);
-        Store(WeakFingerprint(blob), floor);
+        const auto packed = Pack(myFloor, cls);
+        Store(StrongFingerprint(blob), packed);
+        Store(WeakFingerprint(blob), packed);
         // the script-visible values too, in case a render copy is made after this point
-        auto* wind = Field<float>(emitter, g_layout.emWind);
-        if (wind && *wind < floor)
+        if (wind && *wind < myFloor)
         {
-            *wind = floor;
+            *wind = myFloor;
         }
         auto* blobWind = reinterpret_cast<float*>(blob + g_layout.infoWind);
-        if (*blobWind < floor)
+        if (*blobWind < myFloor)
         {
-            *blobWind = floor;
+            *blobWind = myFloor;
         }
         // Emitters with a Collision module are counted, not changed: the game decides on PhysX
         // for the emitter before this callback and reads the module's settings after it.
@@ -319,12 +407,16 @@ void TagSystem(RED4ext::ISerializable* aSystem, const char* aPath)
         for (std::uint32_t m = 0; modules && m < modules->Size(); ++m)
         {
             auto* module = (*modules)[m].instance;
-            auto cls = module ? module->GetType() : nullptr;
-            if (cls && !std::strcmp(cls->GetName().ToString(), "CParticleModificatorCollision"))
+            auto cls2 = module ? module->GetType() : nullptr;
+            if (cls2 && !std::strcmp(cls2->GetName().ToString(), "CParticleModificatorCollision"))
             {
                 ++collisions;
             }
         }
+    }
+    if (survey && tagged == 0 && !names.empty())
+    {
+        RecordSurvey(path, wanted, names);
     }
     if (tagged)
     {
@@ -339,24 +431,53 @@ void TagSystem(RED4ext::ISerializable* aSystem, const char* aPath)
     }
 }
 
-float FloorFor(const std::uint8_t* aBlob)
+float FloorFor(const std::uint8_t* aBlob, Class& aClass)
 {
+    aClass = Class::None;
     if (!g_layout.ok || !aBlob)
     {
         return 0.0f;
     }
-    float f = Load(StrongFingerprint(aBlob));
+    float f = Load(StrongFingerprint(aBlob), aClass);
     if (f > 0.0f)
     {
         g_stats.setupHits.fetch_add(1, std::memory_order_relaxed);
         return f;
     }
-    f = Load(WeakFingerprint(aBlob));
+    f = Load(WeakFingerprint(aBlob), aClass);
     if (f > 0.0f)
     {
         g_stats.setupHitsWeak.fetch_add(1, std::memory_order_relaxed);
     }
     return f;
+}
+
+float FloorForFields(std::uint64_t aModMask, std::uint64_t aInitMask, std::uint32_t aNumMod, std::uint32_t aNumInit,
+                     std::uint32_t aMaxParticles, std::uint64_t aSimHash, Class& aClass)
+{
+    aClass = Class::None;
+    if (!g_layout.ok)
+    {
+        return 0.0f;
+    }
+    const float f = Load(WeakFromFields(aModMask, aInitMask, aNumMod, aNumInit, aMaxParticles, aSimHash), aClass);
+    if (f > 0.0f)
+    {
+        g_stats.setupHitsWeak.fetch_add(1, std::memory_order_relaxed);
+    }
+    return f;
+}
+
+float DragFor(Class aClass)
+{
+    switch (aClass)
+    {
+    case Class::Steam: return 1.5f;
+    case Class::Dust: return 1.2f;
+    case Class::Column: return 0.7f;
+    case Class::Exhaust: return 1.0f;
+    default: return 1.0f;
+    }
 }
 
 Stats& GetStats()
@@ -364,23 +485,28 @@ Stats& GetStats()
     return g_stats;
 }
 
-float FloorForFields(std::uint64_t aModMask, std::uint64_t aInitMask, std::uint32_t aNumMod, std::uint32_t aNumInit,
-                     std::uint32_t aMaxParticles, std::uint64_t aSimHash)
-{
-    if (!g_layout.ok)
-    {
-        return 0.0f;
-    }
-    const float f = Load(WeakFromFields(aModMask, aInitMask, aNumMod, aNumInit, aMaxParticles, aSimHash));
-    if (f > 0.0f)
-    {
-        g_stats.setupHitsWeak.fetch_add(1, std::memory_order_relaxed);
-    }
-    return f;
-}
-
 std::atomic<float>& Floor()
 {
     return g_floor;
+}
+
+void SetSurvey(bool aOn)
+{
+    g_survey.store(aOn, std::memory_order_relaxed);
+}
+
+std::uint32_t DumpSurvey()
+{
+    std::vector<std::string> lines;
+    {
+        std::lock_guard<std::mutex> lock(g_surveyLock);
+        lines.swap(g_surveyLines);
+    }
+    for (const auto& l : lines)
+    {
+        g_sdk->logger->Info(g_handle, l.c_str());
+    }
+    g_sdk->logger->InfoF(g_handle, "survey: %u untagged particle systems logged", static_cast<unsigned>(lines.size()));
+    return static_cast<std::uint32_t>(lines.size());
 }
 } // namespace NCW::SmokeTag

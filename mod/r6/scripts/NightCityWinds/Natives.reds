@@ -54,3 +54,33 @@ public static native func NCW_GetSmokeWindStats() -> Vector4
 public static native func NCW_TagSmokeSystem(system: ref<CParticleSystem>, path: String) -> Void
 public static native func NCW_SetSmokeTagFloor(floor: Float) -> Void
 public static native func NCW_GetSmokeTagStats() -> Vector4
+
+// 0.7.0
+//   NCW_Version()                      the plugin's version, "0.7.0"
+//   NCW_IsSmokeHookActive()            false when this game version's particle setup wasn't found
+//   NCW_SetVehicleAero(enabled, sideGain, yawLever, liftArea)
+//                                      crosswind side force (sideGain x the game's drag, default 1),
+//                                      the yaw it gives (centre of pressure yawLever m ahead of the
+//                                      centre of mass, default 0.5) and lift (Cl x top area in m2,
+//                                      default 2.4; only the wind's share)
+//   NCW_GetVehicleAeroStats()          (last side force N, yaw torque N m, lift N, 0)
+public static native func NCW_Version() -> String
+public static native func NCW_IsSmokeHookActive() -> Bool
+public static native func NCW_SetVehicleAero(enabled: Bool, sideGain: Float, yawLever: Float, liftArea: Float) -> Void
+public static native func NCW_GetVehicleAeroStats() -> Vector4
+
+// overpass rays: tagged smoke simulates on the CPU, where nothing collides, so the plugin samples
+// each puff once a quarter second and NCWParticles casts a short ray along its motion from the
+// frame tick; a hit retires the puff (what the designers' killOnCollision did).
+//   NCW_SmokeRaySamples()              (position, velocity) pairs sampled since the last call
+//   NCW_SmokeRayHit(index)             the pair at `index` hit something
+//   NCW_GetSmokeRayStats()             (puffs sampled, puffs retired, survey entries, 0)
+public static native func NCW_SetSmokeRays(enabled: Bool) -> Void
+public static native func NCW_SmokeRaySamples() -> array<Vector4>
+public static native func NCW_SmokeRayHit(index: Int32) -> Void
+public static native func NCW_GetSmokeRayStats() -> Vector4
+
+// the coverage survey (dev): while on, every loaded particle system that got no smoke tag is
+// recorded with its emitters' names and wind influence; the dump logs them on the main thread
+public static native func NCW_SetSmokeSurvey(enabled: Bool) -> Void
+public static native func NCW_DumpSmokeSurvey() -> Int32

@@ -1,5 +1,5 @@
 // =============================================================================
-// Night City Winds - RED4ext plugin (0.6.0, 2026-10-02; Cyberpunk Wind Framework until 0.5.0)
+// Night City Winds - RED4ext plugin (0.7.0, 2026-10-02; Cyberpunk Wind Framework until 0.5.0)
 //
 // 0.1.0: the vehicle layer. Detours the game's own car air-drag function so it acts on the
 // airspeed (velocity - wind), and gives redscript a handful of natives to drive and inspect it:
@@ -27,6 +27,12 @@
 //   NCW_SetSmokeTagFloor(floor: Float)  wind influence floor for tagged smoke (default 0.2)
 //   NCW_GetSmokeTagStats() -> Vector4   (systems tagged, emitters tagged, physics pools
 //                                        cleared, setups matched + weak matches / 1000)
+// 0.7.0: car aero (side force, yaw, lift), overpass rays for smoke, smoke classes, the
+// coverage survey and the version/hook natives:
+//   NCW_Version() -> String, NCW_IsSmokeHookActive() -> Bool
+//   NCW_SetVehicleAero(enabled, sideGain, yawLever, liftArea), NCW_GetVehicleAeroStats()
+//   NCW_SetSmokeSurvey(enabled), NCW_DumpSmokeSurvey() -> Int32
+//   NCW_SetSmokeRays(enabled), NCW_SmokeRaySamples() -> array<Vector4>, NCW_SmokeRayHit(index)
 // =============================================================================
 
 #include <RED4ext/RED4ext.hpp>
@@ -239,6 +245,124 @@ void NCW_GetVehicleDragStats(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame
     }
 }
 
+// ---- 0.7.0 ---------------------------------------------------------------------------------
+void NCW_Version(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, RED4ext::CString* aOut, int64_t)
+{
+    aFrame->code++;
+    if (aOut)
+    {
+        *aOut = RED4ext::CString("0.7.0");
+    }
+}
+
+void NCW_IsSmokeHookActive(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, bool* aOut, int64_t)
+{
+    aFrame->code++;
+    if (aOut)
+    {
+        *aOut = NCW::SmokeWind::IsAttached();
+    }
+}
+
+void NCW_SetVehicleAero(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t)
+{
+    bool enabled = true;
+    float side = 1.0f, lever = 0.5f, lift = 2.4f;
+    RED4ext::GetParameter(aFrame, &enabled);
+    RED4ext::GetParameter(aFrame, &side);
+    RED4ext::GetParameter(aFrame, &lever);
+    RED4ext::GetParameter(aFrame, &lift);
+    aFrame->code++;
+    auto& s = NCW::VehicleDrag::GetSettings();
+    s.aero.store(enabled);
+    s.sideGain.store(side);
+    s.yawLever.store(lever);
+    s.liftArea.store(lift);
+}
+
+void NCW_GetVehicleAeroStats(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, RED4ext::Vector4* aOut, int64_t)
+{
+    aFrame->code++;
+    if (aOut)
+    {
+        auto& s = NCW::VehicleDrag::GetStats();
+        *aOut = RED4ext::Vector4{s.lastSideForce.load(), s.lastYawTorque.load(), s.lastLift.load(), 0.0f};
+    }
+}
+
+void NCW_SetSmokeSurvey(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t)
+{
+    bool on = false;
+    RED4ext::GetParameter(aFrame, &on);
+    aFrame->code++;
+    NCW::SmokeTag::SetSurvey(on);
+}
+
+void NCW_DumpSmokeSurvey(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t)
+{
+    aFrame->code++;
+    const auto n = NCW::SmokeTag::DumpSurvey();
+    if (aOut)
+    {
+        *aOut = static_cast<int32_t>(n);
+    }
+}
+
+void NCW_SetSmokeRays(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t)
+{
+    bool on = true;
+    RED4ext::GetParameter(aFrame, &on);
+    aFrame->code++;
+    NCW::SmokeWind::SetRays(on);
+}
+
+// the puffs sampled since the last call, as (position, velocity) pairs; a hit is reported by
+// the pair's index. Main thread only (the script tick).
+constexpr std::uint32_t kMaxRays = 96;
+NCW::SmokeWind::RaySampleOut g_raySamples[kMaxRays];
+std::uint32_t g_rayCount = 0;
+
+void NCW_SmokeRaySamples(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, RED4ext::DynArray<RED4ext::Vector4>* aOut,
+                         int64_t)
+{
+    aFrame->code++;
+    g_rayCount = NCW::SmokeWind::DrainRaySamples(g_raySamples, kMaxRays);
+    if (!aOut)
+    {
+        return;
+    }
+    aOut->Clear();
+    aOut->Reserve(g_rayCount * 2);
+    for (std::uint32_t i = 0; i < g_rayCount; ++i)
+    {
+        const auto& s = g_raySamples[i];
+        aOut->PushBack(RED4ext::Vector4{s.pos[0], s.pos[1], s.pos[2], 0.0f});
+        aOut->PushBack(RED4ext::Vector4{s.vel[0], s.vel[1], s.vel[2], 0.0f});
+    }
+}
+
+void NCW_GetSmokeRayStats(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, RED4ext::Vector4* aOut, int64_t)
+{
+    aFrame->code++;
+    if (aOut)
+    {
+        auto& s = NCW::SmokeWind::GetStats();
+        *aOut = RED4ext::Vector4{static_cast<float>(s.raysCast.load()), static_cast<float>(s.puffsKilled.load()),
+                                 static_cast<float>(NCW::SmokeTag::GetStats().surveyEntries.load()), 0.0f};
+    }
+}
+
+void NCW_SmokeRayHit(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t)
+{
+    int32_t index = -1;
+    RED4ext::GetParameter(aFrame, &index);
+    aFrame->code++;
+    if (index >= 0 && static_cast<std::uint32_t>(index) < g_rayCount)
+    {
+        NCW::SmokeWind::RequestKill(g_raySamples[index].key, g_raySamples[index].slot);
+    }
+}
+
 template<typename T>
 RED4ext::CGlobalFunction* Register(const char* aName, RED4ext::ScriptingFunction_t<T> aFunc, const char* aReturn)
 {
@@ -305,6 +429,28 @@ void PostRegisterTypes()
     tagFloor->AddParam("Float", "floor");
     rtti->RegisterFunction(tagFloor);
     rtti->RegisterFunction(Register("NCW_GetSmokeTagStats", &NCW_GetSmokeTagStats, "Vector4"));
+
+    rtti->RegisterFunction(Register("NCW_Version", &NCW_Version, "String"));
+    rtti->RegisterFunction(Register("NCW_IsSmokeHookActive", &NCW_IsSmokeHookActive, "Bool"));
+    auto aero = Register("NCW_SetVehicleAero", &NCW_SetVehicleAero, nullptr);
+    aero->AddParam("Bool", "enabled");
+    aero->AddParam("Float", "sideGain");
+    aero->AddParam("Float", "yawLever");
+    aero->AddParam("Float", "liftArea");
+    rtti->RegisterFunction(aero);
+    rtti->RegisterFunction(Register("NCW_GetVehicleAeroStats", &NCW_GetVehicleAeroStats, "Vector4"));
+    auto survey = Register("NCW_SetSmokeSurvey", &NCW_SetSmokeSurvey, nullptr);
+    survey->AddParam("Bool", "enabled");
+    rtti->RegisterFunction(survey);
+    rtti->RegisterFunction(Register("NCW_DumpSmokeSurvey", &NCW_DumpSmokeSurvey, "Int32"));
+    auto rays = Register("NCW_SetSmokeRays", &NCW_SetSmokeRays, nullptr);
+    rays->AddParam("Bool", "enabled");
+    rtti->RegisterFunction(rays);
+    rtti->RegisterFunction(Register("NCW_SmokeRaySamples", &NCW_SmokeRaySamples, "array:Vector4"));
+    auto hit = Register("NCW_SmokeRayHit", &NCW_SmokeRayHit, nullptr);
+    hit->AddParam("Int32", "index");
+    rtti->RegisterFunction(hit);
+    rtti->RegisterFunction(Register("NCW_GetSmokeRayStats", &NCW_GetSmokeRayStats, "Vector4"));
 }
 
 void RegisterTypes()
@@ -327,10 +473,12 @@ RED4EXT_C_EXPORT bool RED4EXT_CALL Main(RED4ext::v1::PluginHandle aHandle, RED4e
         rtti->AddRegisterCallback(RegisterTypes);
         rtti->AddPostRegisterCallback(PostRegisterTypes);
 
-        NCW::VehicleDrag::Attach(aHandle, aSdk);
+        const bool cars = NCW::VehicleDrag::Attach(aHandle, aSdk);
         NCW::PhysXWind::Init(aHandle, aSdk);
         NCW::SmokeTag::Init(aHandle, aSdk);
-        NCW::SmokeWind::Attach(aHandle, aSdk);
+        const bool smoke = NCW::SmokeWind::Attach(aHandle, aSdk);
+        aSdk->logger->InfoF(aHandle, "Night City Winds 0.7.0: cars %s, smoke %s, props hook once a scene exists",
+                            cars ? "hooked" : "OFF (hash missing)", smoke ? "hooked" : "OFF (hash missing)");
         break;
     }
     case RED4ext::v1::EMainReason::Unload:
@@ -349,7 +497,7 @@ RED4EXT_C_EXPORT void RED4EXT_CALL Query(RED4ext::v1::PluginInfo* aInfo)
 {
     aInfo->name = L"Night City Winds";
     aInfo->author = L"Omar";
-    aInfo->version = RED4EXT_V1_SEMVER(0, 6, 0);
+    aInfo->version = RED4EXT_V1_SEMVER(0, 7, 0);
     // Addresses come from hashes that resolve per game version, and a missing hash switches
     // the feature off instead of crashing, so the plugin doesn't pin a game version.
     aInfo->runtime = RED4EXT_V1_RUNTIME_VERSION_INDEPENDENT;
