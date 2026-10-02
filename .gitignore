@@ -1,0 +1,30 @@
+# third-party sources and binaries (RED4ext.SDK, PhysX headers, WolvenKit CLI): see README
+deps/
+# unrelated work that happens to live in this folder
+_elw_work/
+# game and other mods' extracted files, build intermediates, built archives
+smoke/work/
+smoke/src_vanilla/
+smoke/src_mods/
+smoke/vanilla/
+smoke/corpus/
+smoke/cmp/
+smoke/verify/
+smoke/verify2/
+smoke/probe/
+smoke/old_builds/
+smoke/*.txt
+smoke/*.log
+*.archive
+# plugin build outputs
+plugin/build/
+*.dll
+*.old
+*.pdb
+# tool caches derived from the game binary
+tools/re/symbols.tsv
+tools/re/riprefs.bin
+# per-install backups and run logs
+backups/
+logs/
+__pycache__/
