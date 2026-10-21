@@ -135,6 +135,7 @@ public class NCWWind extends ScriptableSystem {
     this.m_ticking = false;
     this.RestoreVisuals();
     NCW_SetWind(new Vector4(0.0, 0.0, 0.0, 0.0));
+    NCW_SetFieldState(new Vector4(0.0, 0.0, 0.0, 0.0), new Vector4(0.0, 0.0, 0.0, 0.0));
   }
 
   // ===================================================================================
@@ -357,6 +358,7 @@ public class NCWWind extends ScriptableSystem {
       this.m_pushed = w;
       NCW_SetWindOrigin(p);
       NCW_SetWind(w);
+      this.PushFieldState();
       // overpass rays for smoke, on the main thread
       let particles = NCWParticles.Get();
       if IsDefined(particles) {
@@ -375,6 +377,19 @@ public class NCWWind extends ScriptableSystem {
       }
     }
     this.Next();
+  }
+
+  // The field's inputs, for the plugin's foliage layer (0.8.0, through REDGraph): it recomputes
+  // GustAt / AtTurb in C++ over a grid around the camera and adds what differs from the weather
+  // curves (gust fronts, eddies) to the trees there. Mean 0 = nothing: the curves aren't being
+  // driven (visual sync off, disabled) or the wind is pinned.
+  private func PushFieldState() -> Void {
+    let mean = 0.0;
+    if this.m_visualOn && this.m_enabled && !this.m_override {
+      mean = this.Mean();
+    }
+    NCW_SetFieldState(new Vector4(this.Clock(), this.m_seed, mean, this.m_gust),
+                      new Vector4(this.m_turb, this.Heading(), this.m_speed, 0.0));
   }
 
   // V is a character controller, not a rigid body: the wind reaches V as a locomotion impulse

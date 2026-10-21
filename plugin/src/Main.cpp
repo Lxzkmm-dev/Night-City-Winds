@@ -1,5 +1,5 @@
 // =============================================================================
-// Night City Winds - RED4ext plugin (0.7.0, 2026-10-02; Cyberpunk Wind Framework until 0.5.0)
+// Night City Winds - RED4ext plugin (0.8.0, 2026-10-21; Cyberpunk Wind Framework until 0.5.0)
 //
 // 0.1.0: the vehicle layer. Detours the game's own car air-drag function so it acts on the
 // airspeed (velocity - wind), and gives redscript a handful of natives to drive and inspect it:
@@ -33,6 +33,12 @@
 //   NCW_SetVehicleAero(enabled, sideGain, yawLever, liftArea), NCW_GetVehicleAeroStats()
 //   NCW_SetSmokeSurvey(enabled), NCW_DumpSmokeSurvey() -> Int32
 //   NCW_SetSmokeRays(enabled), NCW_SmokeRaySamples() -> array<Vector4>, NCW_SmokeRayHit(index)
+// 0.8.0: the foliage layer through REDGraph (optional; FoliageWind.hpp):
+//   NCW_SetFieldState(a: Vector4, b: Vector4)  the field's inputs each frame: a = (clock, seed, mean,
+//                                       gust), b = (turbulence, heading, front speed, unused)
+//   NCW_SetFoliageWind(enabled: Bool, gain: Float)
+//   NCW_GetFoliageWindStats() -> Vector4  (state 0 no REDGraph / 1 pending / 2 running / 3 refused,
+//                                        patched dispatches, grid writes, largest push last write)
 // =============================================================================
 
 #include <RED4ext/RED4ext.hpp>
@@ -41,6 +47,7 @@
 #include <Windows.h>
 
 #include "Addresses.hpp"
+#include "FoliageWind.hpp"
 #include "PhysXWind.hpp"
 #include "SmokeTag.hpp"
 #include "SmokeWind.hpp"
@@ -251,7 +258,7 @@ void NCW_Version(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, RED4ext::C
     aFrame->code++;
     if (aOut)
     {
-        *aOut = RED4ext::CString("0.7.0");
+        *aOut = RED4ext::CString("0.8.0");
     }
 }
 
@@ -363,6 +370,40 @@ void NCW_SmokeRayHit(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*,
     }
 }
 
+// ---- 0.8.0 ---------------------------------------------------------------------------------
+void NCW_SetFieldState(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t)
+{
+    RED4ext::Vector4 a{};
+    RED4ext::Vector4 b{};
+    RED4ext::GetParameter(aFrame, &a);
+    RED4ext::GetParameter(aFrame, &b);
+    aFrame->code++;
+    NCW::FoliageWind::Update({a.X, a.Y, a.Z, a.W, b.X, b.Y, b.Z});
+}
+
+void NCW_SetFoliageWind(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t)
+{
+    bool enabled = true;
+    float gain = 0.01f;
+    RED4ext::GetParameter(aFrame, &enabled);
+    RED4ext::GetParameter(aFrame, &gain);
+    aFrame->code++;
+    auto& s = NCW::FoliageWind::GetSettings();
+    s.enabled.store(enabled);
+    s.gain.store(gain);
+}
+
+void NCW_GetFoliageWindStats(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, RED4ext::Vector4* aOut, int64_t)
+{
+    aFrame->code++;
+    if (aOut)
+    {
+        auto& s = NCW::FoliageWind::GetStats();
+        *aOut = RED4ext::Vector4{static_cast<float>(s.state.load()), static_cast<float>(s.swaps.load()),
+                                 static_cast<float>(s.writes.load()), s.lastMax.load()};
+    }
+}
+
 template<typename T>
 RED4ext::CGlobalFunction* Register(const char* aName, RED4ext::ScriptingFunction_t<T> aFunc, const char* aReturn)
 {
@@ -451,6 +492,16 @@ void PostRegisterTypes()
     hit->AddParam("Int32", "index");
     rtti->RegisterFunction(hit);
     rtti->RegisterFunction(Register("NCW_GetSmokeRayStats", &NCW_GetSmokeRayStats, "Vector4"));
+
+    auto field = Register("NCW_SetFieldState", &NCW_SetFieldState, nullptr);
+    field->AddParam("Vector4", "a");
+    field->AddParam("Vector4", "b");
+    rtti->RegisterFunction(field);
+    auto foliage = Register("NCW_SetFoliageWind", &NCW_SetFoliageWind, nullptr);
+    foliage->AddParam("Bool", "enabled");
+    foliage->AddParam("Float", "gain");
+    rtti->RegisterFunction(foliage);
+    rtti->RegisterFunction(Register("NCW_GetFoliageWindStats", &NCW_GetFoliageWindStats, "Vector4"));
 }
 
 void RegisterTypes()
@@ -477,7 +528,8 @@ RED4EXT_C_EXPORT bool RED4EXT_CALL Main(RED4ext::v1::PluginHandle aHandle, RED4e
         NCW::PhysXWind::Init(aHandle, aSdk);
         NCW::SmokeTag::Init(aHandle, aSdk);
         const bool smoke = NCW::SmokeWind::Attach(aHandle, aSdk);
-        aSdk->logger->InfoF(aHandle, "Night City Winds 0.7.0: cars %s, smoke %s, props hook once a scene exists",
+        NCW::FoliageWind::Init(aHandle, aSdk);
+        aSdk->logger->InfoF(aHandle, "Night City Winds 0.8.0: cars %s, smoke %s, props hook once a scene exists",
                             cars ? "hooked" : "OFF (hash missing)", smoke ? "hooked" : "OFF (hash missing)");
         break;
     }
@@ -497,7 +549,7 @@ RED4EXT_C_EXPORT void RED4EXT_CALL Query(RED4ext::v1::PluginInfo* aInfo)
 {
     aInfo->name = L"Night City Winds";
     aInfo->author = L"Omar";
-    aInfo->version = RED4EXT_V1_SEMVER(0, 7, 0);
+    aInfo->version = RED4EXT_V1_SEMVER(0, 8, 0);
     // Addresses come from hashes that resolve per game version, and a missing hash switches
     // the feature off instead of crashing, so the plugin doesn't pin a game version.
     aInfo->runtime = RED4EXT_V1_RUNTIME_VERSION_INDEPENDENT;

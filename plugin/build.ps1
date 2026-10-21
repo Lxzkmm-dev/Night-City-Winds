@@ -14,6 +14,13 @@ foreach ($line in $envDump) {
     if ($line -match '^([^=]+)=(.*)$') { [Environment]::SetEnvironmentVariable($matches[1], $matches[2]) }
 }
 
+# the foliage-wind shader patch, edited from the installed game's own shader (nothing of CDPR's in git)
+$game = "G:\SteamLibrary\steamapps\common\Cyberpunk 2077"
+$dxc = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\dxcompiler.dll" | Sort-Object FullName | Select-Object -Last 1
+if (-not $dxc) { throw "no dxcompiler.dll in the Windows SDK" }
+& python -I (Join-Path $here "shaders\build_shaders.py") --game $game --dxc $dxc.DirectoryName --out (Join-Path $build "generated")
+if ($LASTEXITCODE -ne 0) { throw "shader patch failed" }
+
 & $cmake -S $here -B $build -G Ninja "-DCMAKE_MAKE_PROGRAM=$ninja" -DCMAKE_BUILD_TYPE=Release
 if ($LASTEXITCODE -ne 0) { throw "configure failed" }
 & $cmake --build $build

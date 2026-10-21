@@ -84,3 +84,16 @@ public static native func NCW_GetSmokeRayStats() -> Vector4
 // recorded with its emitters' names and wind influence; the dump logs them on the main thread
 public static native func NCW_SetSmokeSurvey(enabled: Bool) -> Void
 public static native func NCW_DumpSmokeSurvey() -> Int32
+
+// 0.8.0: the foliage layer, through REDGraph (optional: without it, trees follow the weather
+// curves only). The plugin adds the field's local deviation - gust fronts, eddies - to the game's
+// wind impulse volume around the camera, which bends the trees and grass there.
+//   NCW_SetFieldState(a, b)            every frame: a = (clock, seed, mean m/s, gust fraction),
+//                                      b = (turbulence fraction, heading, front speed m/s, 0);
+//                                      mean 0 = add nothing
+//   NCW_SetFoliageWind(enabled, gain)  gain: volume units a frame per m/s of deviation (0.01)
+//   NCW_GetFoliageWindStats()          (0 no REDGraph / 1 pending / 2 running / 3 refused,
+//                                      patched dispatches, grid writes, largest push last write)
+public static native func NCW_SetFieldState(a: Vector4, b: Vector4) -> Void
+public static native func NCW_SetFoliageWind(enabled: Bool, gain: Float) -> Void
+public static native func NCW_GetFoliageWindStats() -> Vector4
