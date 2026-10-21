@@ -7,6 +7,7 @@
 
 #include "Addresses.hpp"
 #include "SmokeTag.hpp"
+#include "SmokeVolume.hpp"
 #include "Wind.hpp"
 
 namespace
@@ -321,6 +322,8 @@ void SmokeModifier(std::uint8_t* aParticle, std::uint8_t* aEmitter10, std::uint8
             }
             SampleForRay(aParticle, dt);
         }
+        // 0.9.0: the puff's place in the fog's volume (SmokeVolume), after the drag above
+        NCW::SmokeVolume::Record(aParticle, static_cast<std::uint8_t>(cls), aLife);
     }
     if (!g_settings.enabled.load(std::memory_order_relaxed))
     {

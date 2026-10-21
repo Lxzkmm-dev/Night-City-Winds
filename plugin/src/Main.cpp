@@ -1,5 +1,5 @@
 // =============================================================================
-// Night City Winds - RED4ext plugin (0.8.0, 2026-10-21; Cyberpunk Wind Framework until 0.5.0)
+// Night City Winds - RED4ext plugin (0.9.0, 2026-10-21; Cyberpunk Wind Framework until 0.5.0)
 //
 // 0.1.0: the vehicle layer. Detours the game's own car air-drag function so it acts on the
 // airspeed (velocity - wind), and gives redscript a handful of natives to drive and inspect it:
@@ -39,6 +39,10 @@
 //   NCW_SetFoliageWind(enabled: Bool, gain: Float)
 //   NCW_GetFoliageWindStats() -> Vector4  (state 0 no REDGraph / 1 pending / 2 running / 3 refused,
 //                                        patched dispatches, grid writes, largest push last write)
+// 0.9.0: volumetric smoke in the game's own fog, through REDGraph (optional; SmokeVolume.hpp):
+//   NCW_SetSmokeVolume(enabled: Bool, density: Float, radius: Float, maxPuffs: Int32)
+//   NCW_GetSmokeVolumeStats() -> Vector4  (state as above, patched fog dispatches, puffs recorded
+//                                        last frame, puffs sent to the fog last frame)
 // =============================================================================
 
 #include <RED4ext/RED4ext.hpp>
@@ -50,6 +54,7 @@
 #include "FoliageWind.hpp"
 #include "PhysXWind.hpp"
 #include "SmokeTag.hpp"
+#include "SmokeVolume.hpp"
 #include "SmokeWind.hpp"
 #include "VehicleDrag.hpp"
 #include "Wind.hpp"
@@ -258,7 +263,7 @@ void NCW_Version(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, RED4ext::C
     aFrame->code++;
     if (aOut)
     {
-        *aOut = RED4ext::CString("0.8.0");
+        *aOut = RED4ext::CString("0.9.0");
     }
 }
 
@@ -379,6 +384,8 @@ void NCW_SetFieldState(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void
     RED4ext::GetParameter(aFrame, &b);
     aFrame->code++;
     NCW::FoliageWind::Update({a.X, a.Y, a.Z, a.W, b.X, b.Y, b.Z});
+    // the script's frame tick: the smoke volume's per-frame work rides on it too
+    NCW::SmokeVolume::Update();
 }
 
 void NCW_SetFoliageWind(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t)
@@ -401,6 +408,35 @@ void NCW_GetFoliageWindStats(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame
         auto& s = NCW::FoliageWind::GetStats();
         *aOut = RED4ext::Vector4{static_cast<float>(s.state.load()), static_cast<float>(s.swaps.load()),
                                  static_cast<float>(s.writes.load()), s.lastMax.load()};
+    }
+}
+
+// ---- 0.9.0 ---------------------------------------------------------------------------------
+void NCW_SetSmokeVolume(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t)
+{
+    bool enabled = true;
+    float density = 1.0f, radius = 1.0f;
+    int32_t maxPuffs = 128;
+    RED4ext::GetParameter(aFrame, &enabled);
+    RED4ext::GetParameter(aFrame, &density);
+    RED4ext::GetParameter(aFrame, &radius);
+    RED4ext::GetParameter(aFrame, &maxPuffs);
+    aFrame->code++;
+    auto& s = NCW::SmokeVolume::GetSettings();
+    s.enabled.store(enabled);
+    s.density.store(std::max(0.0f, density));
+    s.radius.store(std::max(0.0f, radius));
+    s.maxPuffs.store(static_cast<std::uint32_t>(std::max(0, maxPuffs)));
+}
+
+void NCW_GetSmokeVolumeStats(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, RED4ext::Vector4* aOut, int64_t)
+{
+    aFrame->code++;
+    if (aOut)
+    {
+        auto& s = NCW::SmokeVolume::GetStats();
+        *aOut = RED4ext::Vector4{static_cast<float>(s.state.load()), static_cast<float>(s.swaps.load()),
+                                 static_cast<float>(s.recorded.load()), static_cast<float>(s.sent.load())};
     }
 }
 
@@ -502,6 +538,13 @@ void PostRegisterTypes()
     foliage->AddParam("Float", "gain");
     rtti->RegisterFunction(foliage);
     rtti->RegisterFunction(Register("NCW_GetFoliageWindStats", &NCW_GetFoliageWindStats, "Vector4"));
+    auto volume = Register("NCW_SetSmokeVolume", &NCW_SetSmokeVolume, nullptr);
+    volume->AddParam("Bool", "enabled");
+    volume->AddParam("Float", "density");
+    volume->AddParam("Float", "radius");
+    volume->AddParam("Int32", "maxPuffs");
+    rtti->RegisterFunction(volume);
+    rtti->RegisterFunction(Register("NCW_GetSmokeVolumeStats", &NCW_GetSmokeVolumeStats, "Vector4"));
 }
 
 void RegisterTypes()
@@ -529,7 +572,8 @@ RED4EXT_C_EXPORT bool RED4EXT_CALL Main(RED4ext::v1::PluginHandle aHandle, RED4e
         NCW::SmokeTag::Init(aHandle, aSdk);
         const bool smoke = NCW::SmokeWind::Attach(aHandle, aSdk);
         NCW::FoliageWind::Init(aHandle, aSdk);
-        aSdk->logger->InfoF(aHandle, "Night City Winds 0.8.0: cars %s, smoke %s, props hook once a scene exists",
+        NCW::SmokeVolume::Init(aHandle, aSdk);
+        aSdk->logger->InfoF(aHandle, "Night City Winds 0.9.0: cars %s, smoke %s, props hook once a scene exists",
                             cars ? "hooked" : "OFF (hash missing)", smoke ? "hooked" : "OFF (hash missing)");
         break;
     }
@@ -549,7 +593,7 @@ RED4EXT_C_EXPORT void RED4EXT_CALL Query(RED4ext::v1::PluginInfo* aInfo)
 {
     aInfo->name = L"Night City Winds";
     aInfo->author = L"Omar";
-    aInfo->version = RED4EXT_V1_SEMVER(0, 8, 0);
+    aInfo->version = RED4EXT_V1_SEMVER(0, 9, 0);
     // Addresses come from hashes that resolve per game version, and a missing hash switches
     // the feature off instead of crashing, so the plugin doesn't pin a game version.
     aInfo->runtime = RED4EXT_V1_RUNTIME_VERSION_INDEPENDENT;

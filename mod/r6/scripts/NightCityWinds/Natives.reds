@@ -97,3 +97,13 @@ public static native func NCW_DumpSmokeSurvey() -> Int32
 public static native func NCW_SetFieldState(a: Vector4, b: Vector4) -> Void
 public static native func NCW_SetFoliageWind(enabled: Bool, gain: Float) -> Void
 public static native func NCW_GetFoliageWindStats() -> Vector4
+
+// 0.9.0: volumetric smoke in the game's own volumetric fog, through REDGraph (optional). The
+// puffs of tagged smoke nearest the player become volumetric particles of the fog, lit by it;
+// the sprites stay on top for detail.
+//   NCW_SetSmokeVolume(enabled, density, radius, maxPuffs)  density / radius multiply each smoke
+//                                      class's own (1 = as designed); maxPuffs up to 128
+//   NCW_GetSmokeVolumeStats()          (0 no REDGraph / 1 pending / 2 running / 3 refused,
+//                                      patched fog dispatches, puffs recorded, puffs sent)
+public static native func NCW_SetSmokeVolume(enabled: Bool, density: Float, radius: Float, maxPuffs: Int32) -> Void
+public static native func NCW_GetSmokeVolumeStats() -> Vector4
