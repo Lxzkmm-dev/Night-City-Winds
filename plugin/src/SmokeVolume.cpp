@@ -33,12 +33,13 @@ std::atomic<bool> g_collect{false};
 // main thread only
 bool g_missingLogged = false;
 bool g_statusLogged = false;
-int g_selected = 0;
+int g_selected = -1; // the variant last selected: -1 vanilla (initial), 0 ours
 std::uint32_t g_frame = 0;
 
 // the patch's cbuffer (b3): register 0 .z = the count, then two registers a particle
-constexpr std::uint32_t kMaxPuffs = 128;
-constexpr std::uint32_t kRegs = 272; // 1 + 2 x 128, rounded up to 4352 B (what build_shaders.py declares)
+// REDGraph's cbuffers are at most 4096 B: 1 + 2 x 127 = 255 registers (build_shaders.py declares 256)
+constexpr std::uint32_t kMaxPuffs = 127;
+constexpr std::uint32_t kRegs = 256;
 std::uint32_t g_cb[kRegs * 4];
 
 // ---- puffs, recorded by the particle threads ----------------------------------------------------
@@ -152,7 +153,7 @@ void OnHost(const rg_host* aHost, void*)
         HashOf(targets[i].engine, d.hash);
         d.variants = &blobs[i];
         d.variant_count = 1;
-        d.initial_variant = 0;
+        d.initial_variant = -1; // the engine's shader until Update selects ours (everything granted)
         d.priority = 0;
         results[i] = aHost->patch_register(&d);
         if (results[i] > 0)

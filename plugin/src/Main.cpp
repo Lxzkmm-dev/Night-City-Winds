@@ -416,7 +416,7 @@ void NCW_SetSmokeVolume(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, voi
 {
     bool enabled = true;
     float density = 1.0f, radius = 1.0f;
-    int32_t maxPuffs = 128;
+    int32_t maxPuffs = 127;
     RED4ext::GetParameter(aFrame, &enabled);
     RED4ext::GetParameter(aFrame, &density);
     RED4ext::GetParameter(aFrame, &radius);

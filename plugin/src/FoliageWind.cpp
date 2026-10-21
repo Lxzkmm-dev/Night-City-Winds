@@ -28,7 +28,7 @@ rg_handle g_cbuffer = 0;
 // main thread only
 bool g_missingLogged = false;
 bool g_statusLogged = false;
-int g_selected = 0; // the variant last selected: 0 ours (initial), -1 vanilla
+int g_selected = -1; // the variant last selected: -1 vanilla (initial), 0 ours
 
 // m_windImpulseVolumeUpdate_Shapes (game 2.31), the shader the patch replaces
 constexpr std::uint8_t kShapesHash[16] = {0xb8, 0x8a, 0xf9, 0x3e, 0x42, 0x1f, 0x88, 0xee,
@@ -125,7 +125,7 @@ void OnHost(const rg_host* aHost, void*)
     std::memcpy(d.hash, kShapesHash, sizeof d.hash);
     d.variants = &blob;
     d.variant_count = 1;
-    d.initial_variant = 0;
+    d.initial_variant = -1; // the engine's shader until Update selects ours (everything granted)
     d.priority = 0;
     g_patch = aHost->patch_register(&d);
 

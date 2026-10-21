@@ -25,7 +25,7 @@ struct Settings
     std::atomic<bool> enabled{true};
     std::atomic<float> density{1.0f};    // multiplies each class's density
     std::atomic<float> radius{1.0f};     // multiplies each class's radius
-    std::atomic<std::uint32_t> maxPuffs{128};
+    std::atomic<std::uint32_t> maxPuffs{127};
 };
 
 struct Stats

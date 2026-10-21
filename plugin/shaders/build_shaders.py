@@ -95,8 +95,8 @@ SMOKE_PAIRS = [
     ("81702d32ff55a1141aeb46556d215e3d", "d038ce3d637f0275f0452b265e937e4a", "SmokeRaster"),
     ("61f9ce9cb0eff83f521aadb878669662", "d39d549f9ac175d0f239658582f5c9b3", "SmokeDistantShadow"),
 ]
-SMOKE_MAX = 128
-SMOKE_REGS = 272  # 1 + 2 x 128 = 257 registers, rounded up to a multiple of 256 bytes (4352 B)
+SMOKE_MAX = 127
+SMOKE_REGS = 256  # 1 + 2 x 127 = 255 registers, 4096 B: REDGraph's largest cbuffer
 SMOKE_TYPE = f"%hostlayout.NCWSmoke = type {{ [{SMOKE_REGS} x <4 x float>] }}\n"
 
 RE_PARTICLE_META = re.compile(r'^!\d+ = !\{i32 (\d+), %"class\.StructuredBuffer<VolumetricGPUParticle>"\* undef, '
